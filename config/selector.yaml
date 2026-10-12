@@ -1,0 +1,74 @@
+# 选股程序配置
+# 注：qlib 数据目录由 src/data/market.py 的 DEFAULT_PROVIDER 决定（默认 ~/.qlib/qlib_data/cn_data，
+# 可用环境变量 QLIB_DATA 覆盖），不在本文件配置。
+
+# ---------- 稳健池 ----------
+stable:
+  universe: csi800          # 选股范围
+  boards: [main]            # 交易资格板块：main=主板 cyb=创业板 kcb=科创板 bse=北交所；如 [main, cyb] 加入创业板
+  topk: 30                  # 股池数量
+  n_drop: 5                 # 每期换仓数量（控制换手）
+  rebalance: monthly        # 月度调仓
+  benchmark: SH000300       # 沪深300
+  backtest:
+    start: '2018-01-01'
+    end: null               # null = 最新
+    in_sample_end: '2022-12-31'   # 样本内/外分界
+  min_list_days: 180        # 上市不足180天剔除
+  factor_weights:           # 依据 2018~2026 全区间 IC 检验（docs/factor_report.md）
+    dividend_yield: 1.5     # IC 0.039, ICIR 0.35 —— 最强基本面因子
+    neg_vol_20: 1.5         # 低波动 IC 0.056
+    dividend_continuity: 1.0  # 股息连续性 IC 0.035/ICIR 0.318，与股息率相关仅 0.33（2026-10 新增）
+    ocf_to_netprofit: 1.0   # 盈利质量 IC 0.020/ICIR 0.249，低相关分散（2026-10 新增；近250日IC衰减中，观察）
+    neg_pb: 1.0             # IC 0.021
+    neg_pe_ttm: 1.0         # IC 0.019（临界保留）
+    neg_mom_20: 1.0         # 20日反转（mom_20 IC=-0.037，取反使用）
+    neg_risk_adj_mom: 1.0   # 风险调整动量取反（IC=-0.029）
+    # 以下全区间 |IC|<0.02，剔除出打分（保留代码，后续可用更长持有期复评）
+    roe: 0.0
+    gross_margin: 0.0
+    revenue_yoy: 0.0
+    netprofit_yoy: 0.0
+    neg_max_ret_20: 0.0     # IC 0.057 但与 neg_vol_20 相关 0.85，替换测试(V3)不如叠加 V2，停用
+    neg_pb_pct: 0.0         # PB 自身分位 IC 0.013 弱，V4 测试无增益，停用
+
+# ---------- 短线池 ----------
+short:
+  universe: all             # 全市场（反转alpha在小票中更强，csi800 会变差）
+  boards: [main, cyb, kcb, bse]  # 全板块（纸上跟踪定位，不需交易资格；如需实盘按资格缩减）
+  topk: 8                   # 股池数量（5~10）
+  n_drop: 3                 # 每周换仓数量
+  hold_thresh: 1
+  rebalance: weekly         # 周度调仓（周五收盘后）
+  benchmark: SH000852       # 中证1000
+  backtest:
+    start: '2020-01-01'
+    end: null
+    in_sample_end: '2022-12-31'
+  min_list_days: 180
+  min_amount: 100000000     # 日成交额低于1亿剔除
+  stop_loss: -0.05          # 单票止损线（2026-10 参数化测试：-5% 样本外 IR 0.93 优于 -8% 的 0.72 / -12% 的 0.82 / 无止损的 0.65）
+  max_hold_days: 10         # 强制轮换持有期
+  chase_limit: 0.30         # 近5日涨幅>30% 剔除（不追鱼尾）
+  falling_knife: -0.15      # 近5日跌幅>15% 剔除（不接飞刀，分层显示最深跌组继续跌）
+  factor_weights:           # 短线权重：取回测最佳的反转组合（第一轮）
+    neg_mom_10d: 1.5        # IC +0.062 超跌反转
+    neg_turnover_surge: 1.5 # IC +0.063 缩量
+    neg_limit_up_count: 1.0 # IC +0.062 近期无涨停（冷门）
+    neg_mom_5d: 1.0         # IC +0.049
+    neg_volume_ratio: 0.5   # IC +0.027（与缩量因子相关，降权）
+    # 第三轮"平静低波"因子（neg_range_5d/neg_volume_cv_20/neg_price_position_60d）
+    # IC 高但 topk 组合实盘化后更差（僵尸股尾部问题），不进入打分
+
+# ---------- 交易成本 ----------
+cost:
+  commission: 0.00025       # 佣金双边万2.5
+  stamp_tax: 0.0005         # 印花税卖出千0.5
+  slippage_stable: 0.001    # 稳健池滑点千1
+  slippage_short: 0.002     # 短线池滑点千2（压力测试）
+
+# ---------- 过滤规则 ----------
+filters:
+  exclude_st: true
+  exclude_suspend_days: 20  # 近20日有停牌剔除
+  exclude_limit_on_rebalance: true  # 调仓日涨跌停不可成交剔除
