@@ -126,3 +126,54 @@ def build_filter_mask(
         ok &= ~(mom5 < float(knife)).fillna(False)
 
     return ok
+
+
+# ------------------------------------------------------------------ 成分时点
+def universe_spans(universe: str, start: str, end: str) -> dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]]:
+    """指数成分区间 {code: [(纳入日, 调出日), ...]}，只含 [start, end] 内有交集的个股。
+
+    qlib 成分文件含历史成分（含已退市股票），同一股票可能多次进出指数。
+    """
+    from qlib.data import D
+
+    from ..data.market import init_qlib
+
+    init_qlib()
+    spans = D.list_instruments(D.instruments(universe), start_time=start, end_time=end, as_list=False)
+    return {c: [(pd.Timestamp(s), pd.Timestamp(e)) for s, e in v] for c, v in spans.items() if is_stock(c)}
+
+
+def membership_panel(
+    spans: dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]],
+    dates: pd.DatetimeIndex,
+    codes: list[str] | None = None,
+) -> pd.DataFrame:
+    """date×code 布尔面板：当日是否为指数成分（防"用未来成分选股"的前视偏差）。"""
+    codes = list(codes) if codes is not None else sorted(spans)
+    dates = pd.DatetimeIndex(dates)
+    out = pd.DataFrame(False, index=dates, columns=codes)
+    for c in codes:
+        col = out[c].to_numpy().copy()
+        for s, e in spans.get(c, []):
+            col |= (dates >= s) & (dates <= e)
+        out[c] = col
+    return out
+
+
+def current_st_codes() -> set[str]:
+    """当前 ST 股票集合（akshare 当日快照；失败时回退到 yjbb 最新名称）。
+
+    只有当前快照、没有历史 ST 数据源，因此只能用于"最新一天"的过滤。
+    """
+    from ..data import fundamental as fd
+
+    try:
+        spot = fd.fetch_spot()
+        return {fd.normalize_code(c) for c in spot[spot["is_st"]]["code"]}
+    except Exception as e:  # noqa: BLE001
+        print(f"[warn] spot 快照失败，ST 名单回退到 yjbb 名称: {e}")
+    try:
+        yj = fd.load_yjbb_all().sort_values("period").drop_duplicates("qlib_code", keep="last")
+        return set(yj[yj["name"].str.contains("ST", case=False, na=False)]["qlib_code"])
+    except Exception:  # noqa: BLE001
+        return set()

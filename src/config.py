@@ -38,6 +38,7 @@ class PoolSpec:
     min_topk: int
     topk: int | None
     rebalance: str
+    score_ema: int | None     # 分数 EMA 平滑跨度（交易日），None = 不平滑
     strategy: dict            # {"name": ..., 其余为策略参数}
     scorer: dict              # {"name": ..., 其余为打分器参数}
     filters: dict[str, dict]  # 规则名 -> 参数（按 yaml 顺序）
@@ -128,6 +129,7 @@ def build_pool_spec(name: str, pool_cfg: dict, global_cfg: dict,
         min_topk=int(cfg.get("min_topk", 5)),
         topk=None if cfg.get("topk") is None else int(cfg["topk"]),
         rebalance=cfg.get("rebalance", "daily"),
+        score_ema=None if cfg.get("score_ema") is None else int(cfg["score_ema"]),
         strategy=dict(cfg["strategy"]),
         scorer=dict(cfg["scorer"]),
         filters=filters,
