@@ -4,12 +4,14 @@
     python -X utf8 scripts/run_train.py --pool hs300
     python -X utf8 scripts/run_train.py --pool all --kinds lgbm,linear
 
+内存：中证1000 特征约 276 万行 × 158 列，峰值十余 GB；多池时建议逐池单独运行。
 产物见 src/models/rolling.py；训练报告 data/reports/train_{pool}.md（逐窗口 / 逐年 RankIC、特征重要性）。
 训练完成后用 run_backtest.py --pool X --scorer lgbm 回测。
 """
 from __future__ import annotations
 
 import argparse
+import gc
 import os
 import sys
 from pathlib import Path
@@ -74,6 +76,8 @@ def main() -> None:
         out = REPORT_DIR / f"train_{name}.md"
         out.write_text("\n".join(report(pool, manifests, args.show_holdout)), encoding="utf-8")
         print(f"报告: {out}", flush=True)
+        del manifests
+        gc.collect()  # 特征 handler 数 GB，释放后再进入下一池（中证1000 最大，建议单独进程训练）
 
 
 if __name__ == "__main__":

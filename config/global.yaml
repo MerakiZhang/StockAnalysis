@@ -36,3 +36,5 @@ model:
   valid_months: 6           # 早停用验证段
   retrain: yearly           # yearly / quarterly
   seed: 42
+  lgbm:                     # 覆盖 qlib Alpha158 基准参数（src/models/rolling.py LGBM_DEFAULTS）
+    learning_rate: 0.05     # 研发区 RankIC 三池均优于 0.2（hs300 .051/.049 zz500 .060/.056 zz1000 .094/.089）
