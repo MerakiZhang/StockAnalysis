@@ -341,3 +341,53 @@ run_backtest(signal: Signal, pool: PoolSpec, start: str, end: str) -> dict
    逐池 scorer 经讨论落定。
 7. 所有报告与简报含 data_version 与配置 hash；`tests/` 全部通过。
 8. README / RULES / ARCHITECTURE 与新结构一致。
+
+---
+
+## 6. 执行进度（截至 2026-10-15，分支 `refactor/index-pools`）
+
+### 已完成
+
+| 阶段 | 状态 | 要点 |
+|------|------|------|
+| P0 | ✅ | 旧代码 momentum 冒烟基线：`data/reports/backtest_report_baseline_momentum.md` |
+| P1 | ✅ | `global.yaml` + `pools/*.yaml`、`PoolSpec` 深合并、注册表参数校验；`--set a.b=c` 点路径覆盖 |
+| P2 | ✅ | `src/data/sync.py`：本地已自动标记为 release 2026-10-14（日历末日一致，未下载） |
+| P3 | ✅ | 面板化 FILTERS（entry/exit）、成分时点面板、`build_signal` |
+| P4 | ✅ | `rebalance()` 选股与回测共用；`check_consistency.py` 三池逐日一致（差异仅涨跌停成交约束） |
+| P5 | ✅ | Alpha158 + qlib LGBModel/LinearModel 滚动训练；⛔决策点已过：用户选择"先降换手，再做 P6" |
+| P7（提前部分） | ✅ | 学习率与换手网格（只用研发区），结论已写入配置 |
+| P6 | 🔶 进行中 | 见下 |
+
+### 与计划的偏差 / 新增决定
+
+- **保留集保护**：回测、网格、训练报告、因子体检默认截止 `in_sample_end`（2022-12-31），`--show-holdout` 才看 2023+。
+- **滚动窗口自建**：qlib RollingGen 不支持 purge gap；训练/预测/记录仍用 qlib DatasetH + Recorder（`data/mlruns/`，mlflow 文件存储需 `MLFLOW_ALLOW_FILE_STORE=true`，代码已设置）。
+- **模型按训练签名分目录**：`data/models/{pool}/{kind}_{signature}/`，改参数不覆盖旧版本。
+- **内存**：中证1000 特征 276 万行×158 列；本机提交内存上限约 32G（页面文件仅 600MB），qlib 原版处理器整表复制会 OOM →
+  改用原地融合处理器 `CSRobustZScoreInplace`（等价 ProcessInf+CSZScoreNorm(robust)+Fillna）；多池训练逐池单独进程。
+- **LightGBM 学习率 0.05**（global.yaml）：研发区 RankIC 三池均优于 0.2（hs300 .051/.049、zz500 .060/.056、zz1000 .094/.089）。
+- **换手**：三池 `hold_thresh=10`、不做分数 EMA、日频。研发区三池平均超额 10.6%、IR 0.59、日均换手 12.7%（原 ~29%），三池均为正
+  （hs300 +15.0% / zz500 +2.0% / zz1000 +14.8%）。三池打分器已切到 `lgbm`。
+- **已修复的问题**：成交量约束单位（本数据 `$volume` 为"手"，改按成交额折算）；qlib 默认涨跌停时买卖全禁 → 只按方向限制；
+  指标改复利口径；旧 `dividend_yield` 用复权价做分母（错误，新特征已改用复权口径每股值）。
+
+### P6 当前状态（下次从这里继续）
+
+已完成（代码已提交，单元测试通过）：
+- `fundamental.py` 业绩报表补"每股净资产"(bps)，旧缓存缺列自动重抓；`update_data.py` 默认 2012 起，百度逐股估值改为 `--with-valuation` 可选。
+- `src/factors/supplementary.py`：ep_ttm / bp / dividend_yield / dividend_continuity / roe / gross_margin / ocf_to_netprofit /
+  revenue_yoy / netprofit_yoy；每股值 × 报告期末复权因子 ÷ 复权收盘价（送转前后连续）。测试 `tests/test_supplementary.py`。
+- `build_handler(..., features)`：`model.features` 含 `fundamental` 时经 StaticDataLoader + NestedDataLoader 并入；默认仍只用 alpha158（旧模型签名不变）。
+- `scripts/run_factor_check.py` 改为按池特征体检（**尚未实际运行过**）。
+
+待办：
+1. **数据下载被中断**：yjbb 2012Q1~2025Q4 已带 bps 重抓（56 个文件），2026 三期与 fhps/xjll 的 2012~2016 尚未抓。重跑即可续传：
+   `python -X utf8 scripts/update_data.py`
+2. `python -X utf8 scripts/run_factor_check.py --pool all` → 检查覆盖率（2013~2017 训练期是否可用）与 RankIC。
+3. 带基本面训练 lgbm 并与纯 Alpha158 对比（研发区 RankIC + 回测）：
+   `QLIB_KERNELS=2 python -X utf8 scripts/run_train.py --pool <池> --kinds lgbm --set "model.features=[alpha158,fundamental]"`（逐池单独运行）
+   `python -X utf8 scripts/run_backtest.py --pool <池> --set "model.features=[alpha158,fundamental]" --tag fund`
+   风险：NestedDataLoader 的 merge + 列排序会多两份整表副本，中证1000 可能再次 OOM，需要时改为加载后原地拼接。
+4. 之后：P7 剩余（`run_model_compare.py`、参数冻结后一次性跑保留集 `--show-holdout`、⛔与用户定生产 scorer）、P8 收尾
+   （删除 `scoring.py` 前先把 `normalize_cross_section` 移入 `eval.py`，`eval.py` 依赖它）。

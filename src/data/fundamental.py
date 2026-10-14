@@ -49,6 +49,7 @@ YJBB_COLMAP = {
     "营业总收入-同比增长": "revenue_yoy",
     "净利润-净利润": "netprofit",
     "净利润-同比增长": "netprofit_yoy",
+    "每股净资产": "bps",
     "净资产收益率": "roe",
     "销售毛利率": "gross_margin",
     "所处行业": "industry",
@@ -105,7 +106,10 @@ def fetch_yjbb(period: str, use_cache: bool = True) -> pd.DataFrame:
 
     path = FUND_DIR / "yjbb" / f"yjbb_{period}.parquet"
     if use_cache and path.exists():
-        return pd.read_parquet(path)
+        cached = pd.read_parquet(path)
+        if set(YJBB_COLMAP.values()) <= set(cached.columns):
+            return cached
+        # 旧缓存缺新列（如 bps）时重新抓取
     df = _retry(ak.stock_yjbb_em, date=period)
     df = df.rename(columns=YJBB_COLMAP)[list(YJBB_COLMAP.values())]
     df["qlib_code"] = df["code"].map(normalize_code)
@@ -167,7 +171,7 @@ def fetch_xjll(period: str, use_cache: bool = True) -> pd.DataFrame:
     return df
 
 
-def load_xjll_all(start_year: int = 2017) -> pd.DataFrame:
+def load_xjll_all(start_year: int = 2012) -> pd.DataFrame:
     """加载所有已缓存报告期的现金流量表，合并为一张长表。"""
     frames = []
     for p in sorted((FUND_DIR / "xjll").glob("xjll_*.parquet")):
@@ -271,7 +275,7 @@ def fetch_spot(use_cache: bool = True) -> pd.DataFrame:
     return out
 
 
-def load_yjbb_all(start_year: int = 2017) -> pd.DataFrame:
+def load_yjbb_all(start_year: int = 2012) -> pd.DataFrame:
     """加载所有已缓存报告期的业绩报表，合并为一张长表。"""
     frames = []
     for p in sorted((FUND_DIR / "yjbb").glob("yjbb_*.parquet")):

@@ -101,10 +101,18 @@ def make_model(kind: str, params: dict):
     raise KeyError(f"unknown model kind {kind}")
 
 
+def feature_sets(pool) -> list[str]:
+    """特征集（global/池 yaml 的 model.features），默认只用 Alpha158。"""
+    return list(pool.model.get("features", ["alpha158"]))
+
+
 def train_signature(pool, kind: str) -> str:
     """影响预测结果的配置：universe / 模型公共参数 / 模型参数 / 特征集。"""
-    blob = json.dumps({"universe": pool.universe, "model": pool.model, "params": model_params(pool, kind),
-                       "features": "alpha158"}, sort_keys=True, default=str)
+    feats = feature_sets(pool)
+    model = {k: v for k, v in pool.model.items() if k != "features"}
+    blob = json.dumps({"universe": pool.universe, "model": model, "params": model_params(pool, kind),
+                       "features": "alpha158" if feats == ["alpha158"] else "+".join(feats)},
+                      sort_keys=True, default=str)
     return hashlib.sha1(blob.encode()).hexdigest()[:10]
 
 
@@ -151,9 +159,9 @@ def train_rolling(pool, kinds=KINDS, first_test: str | None = None, end: str | N
     end = end or str(cal[-1].date())
     windows = rolling_windows(cal, first_test, end, int(m.get("train_years", 4)),
                               int(m.get("valid_months", 6)), horizon + 1, m.get("retrain", "yearly"))
-    log(f"[{pool.name}] {len(windows)} 个窗口：首个 train {windows[0].train} 末个 test {windows[-1].test}")
+    log(f"[{pool.name}] 特征集 {feature_sets(pool)}；{len(windows)} 个窗口：首个 train {windows[0].train} 末个 test {windows[-1].test}")
 
-    handler = build_handler(pool.universe, windows[0].train[0], end, horizon)
+    handler = build_handler(pool.universe, windows[0].train[0], end, horizon, feature_sets(pool))
     label = handler.fetch(col_set="label", data_key=DataHandlerLP.DK_I).iloc[:, 0]  # 原始标签（infer 不处理标签）
     log(f"[{pool.name}] 特征 {handler.fetch(col_set='feature', data_key=DataHandlerLP.DK_I).shape}")
 
@@ -240,7 +248,7 @@ def predict(pool, kind: str, codes: list[str], dates: pd.DatetimeIndex, log=prin
         if len(missing) > 250:
             log(f"[warn] 外推超过一年，请重新运行 run_train.py")
         start = str((missing[0] - pd.Timedelta(days=FEATURE_WARMUP_DAYS)).date())
-        handler = build_handler(pool.universe, start, str(missing[-1].date()), None)
+        handler = build_handler(pool.universe, start, str(missing[-1].date()), None, feature_sets(pool))
         ds = DatasetH(handler, segments={"test": (str(missing[0].date()), str(missing[-1].date()))})
         pred = pd.concat([pred, model.predict(ds, segment="test")])
     wide = pred.unstack(level=-1)

@@ -96,18 +96,33 @@ LEARN_PROCESSORS = [
 ]
 
 
-def build_handler(universe: str | list[str], start: str, end: str, horizon: int | None):
-    """horizon=None 时只取特征（推理用）。"""
+FEATURE_SETS = ("alpha158", "fundamental")
+
+
+def build_handler(universe: str | list[str], start: str, end: str, horizon: int | None,
+                  features: tuple[str, ...] | list[str] = ("alpha158",)):
+    """horizon=None 时只取特征（推理用）。features 含 "fundamental" 时并入补充基本面特征
+    （src/factors/supplementary.py，经 StaticDataLoader + NestedDataLoader 左连接到 Alpha158 索引）。"""
     from qlib.data.dataset.handler import DataHandlerLP
+    from qlib.data.dataset.loader import NestedDataLoader, StaticDataLoader
 
     from ..data.market import init_qlib
 
+    unknown = set(features) - set(FEATURE_SETS)
+    if unknown or "alpha158" not in features:
+        raise ValueError(f"features 须包含 alpha158，可选 {FEATURE_SETS}，收到 {list(features)}")
     init_qlib()
+    loader = loader_config(horizon)
+    if "fundamental" in features:
+        from .supplementary import supplementary_long
+
+        static = StaticDataLoader(config=supplementary_long(universe, start, end))
+        loader = NestedDataLoader([loader, static], join="left")
     return DataHandlerLP(
         instruments=universe,
         start_time=start,
         end_time=end,
-        data_loader=loader_config(horizon),
+        data_loader=loader,
         infer_processors=infer_processors(),
         learn_processors=LEARN_PROCESSORS if horizon is not None else [],
         drop_raw=True,  # 处理后丢弃原始数据副本，省内存（infer 处理器不动标签，原始标签可从 DK_I 取）
