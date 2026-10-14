@@ -157,12 +157,16 @@ def validate_spec(spec: PoolSpec, registries: dict) -> None:
 
 
 def load_pool(name: str, pools_dir: Path | None = None, global_path: Path | None = None,
-              registries: dict | None = None, validate: bool = True) -> PoolSpec:
+              registries: dict | None = None, validate: bool = True,
+              override: dict | None = None) -> PoolSpec:
+    """override：按顶层键**整段替换**池 yaml（如 {"scorer": {"name": "momentum"}}），
+    用于命令行覆盖与参数网格；替换后照常与 global 深合并并校验。"""
     d = pools_dir or POOLS_DIR
     path = d / f"{name}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"未找到股池配置 {path}，可选: {list_pools(d)}")
-    return build_pool_spec(name, _read_yaml(path), load_global(global_path), registries, validate)
+    pool_cfg = {**_read_yaml(path), **(override or {})}
+    return build_pool_spec(name, pool_cfg, load_global(global_path), registries, validate)
 
 
 # ---------------------------------------------------------------- 旧接口（待删除）

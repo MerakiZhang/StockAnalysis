@@ -1,168 +1,138 @@
-"""股池生成、对比与简报输出。
+"""选股：上期股池 + 当日信号 → rebalance() → 股池 CSV 与简报。
 
-因子按 config 的 factor_weights 从注册表（factors.registry）取，
-权重为 0 的因子不计算；行情宽表经 market_ctx 只加载一次，
-同时供因子计算与过滤器使用。
+股池文件按池分目录：data/pool/{pool}/{YYYY-MM-DD}.csv 与 {YYYY-MM-DD}_brief.md，
+日期为**信号日**（数据最新交易日 T），股池供 T 之后首个交易日执行。
+CSV 列：code, name, score, rank, entry_date（入池信号日，用于计算持有天数）, status。
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 
 from ..config import PROJECT_ROOT
 from ..data import fundamental as fd
-from ..data.market import list_instruments
-from ..factors.registry import market_ctx, weighted_factor_tables
-from .scoring import combine
-from .universe import build_filter_mask, is_stock
+from .rebalance import RebalanceResult, rank_codes, rebalance
+from .signal import Signal
 
 POOL_DIR = PROJECT_ROOT / "data" / "pool"
 
 
-def _name_map() -> dict[str, str]:
-    """qlib 代码 -> 股票名称（用最新 yjbb + 当日快照合并）。"""
+def pool_dir(name: str) -> Path:
+    return POOL_DIR / name
+
+
+def name_map() -> dict[str, str]:
+    """qlib 代码 -> 股票名称（yjbb 历史名称 + 当日快照，快照优先）。"""
     names: dict[str, str] = {}
     try:
         yj = fd.load_yjbb_all().sort_values("period")
-        for code, name in zip(yj["qlib_code"], yj["name"]):
-            names[code] = name
+        names.update(zip(yj["qlib_code"], yj["name"]))
     except FileNotFoundError:
         pass
     try:
         spot = fd.fetch_spot()
-        for code, name in zip(spot["code"], spot["name"]):
-            names.setdefault("SH" + code if code.startswith(("60", "68")) else
-                             "SZ" + code if code.startswith(("00", "30")) else
-                             "BJ" + code, name)
-    except Exception:  # noqa: BLE001
+        names.update({fd.normalize_code(c): n for c, n in zip(spot["code"], spot["name"])})
+    except Exception:  # noqa: BLE001 - 快照失败时只缺名称，不影响选股
         pass
     return names
 
 
-def _st_codes() -> set[str]:
-    """当前 ST 股票集合。快照接口失败时回退到 yjbb 最新名称判断。"""
-    try:
-        spot = fd.fetch_spot()
-        st = spot[spot["is_st"]]["code"]
-        return {fd.normalize_code(c) for c in st}
-    except Exception as e:  # noqa: BLE001
-        print(f"[warn] spot 快照失败，ST 名单回退到 yjbb 名称: {e}")
-    try:
-        yj = fd.load_yjbb_all().sort_values("period").drop_duplicates("qlib_code", keep="last")
-        return set(yj[yj["name"].str.contains("ST", case=False, na=False)]["qlib_code"])
-    except Exception:  # noqa: BLE001
-        return set()
+def load_prev(name: str, before: pd.Timestamp) -> tuple[pd.DataFrame | None, pd.Timestamp | None]:
+    """信号日 before 之前（不含）最近一期股池。同日重跑时以前一期为基础覆盖本期。"""
+    files = sorted(pool_dir(name).glob("????-??-??.csv"))
+    files = [f for f in files if pd.Timestamp(f.stem) < before]
+    if not files:
+        return None, None
+    df = pd.read_csv(files[-1], dtype={"code": str}, parse_dates=["entry_date"])
+    return df, pd.Timestamp(files[-1].stem)
 
 
-def stable_scores(date: str | pd.Timestamp, cfg: dict) -> pd.Series:
-    """稳健池：基本面 + 技术面多因子总分（date 当日截面）。"""
-    date = pd.Timestamp(date)
-    scfg = cfg["stable"]
-    codes = list(list_instruments(scfg["universe"], start="2019-01-01", end=str(date.date())))
-    win_start = str((date - pd.Timedelta(days=450)).date())
-    end = str(date.date())
-
-    ctx = market_ctx(codes, win_start, end)
-    factors = weighted_factor_tables(scfg["factor_weights"], codes, win_start, end, ctx)
-    total = combine(factors, scfg["factor_weights"])
-
-    mask = build_filter_mask(
-        date, codes, ctx["close"], ctx["volume"], ctx["amount"],
-        st_names=_st_codes(),
-        cfg={
-            "exclude_st": cfg["filters"]["exclude_st"],
-            "min_list_days": scfg["min_list_days"],
-            "exclude_suspend_days": cfg["filters"]["exclude_suspend_days"],
-            "exclude_limit_on_rebalance": cfg["filters"]["exclude_limit_on_rebalance"],
-            "boards": scfg.get("boards"),
-        },
-    )
-    score = total.loc[:date].iloc[-1]
-    return score[score.index.isin(mask[mask].index)].dropna().sort_values(ascending=False)
-
-
-def short_scores(date: str | pd.Timestamp, cfg: dict) -> pd.Series:
-    """短线池：技术面/情绪因子总分（date 当日截面）。
-
-    IC 检验结论：追涨方向全为负 IC，短线只做超跌反转/缩量低吸。
-    """
-    date = pd.Timestamp(date)
-    scfg = cfg["short"]
-    codes = list(list_instruments(scfg["universe"], start=str((date - pd.Timedelta(days=30)).date()), end=str(date.date())))
-    codes = [c for c in codes if is_stock(c)]
-    win_start = str((date - pd.Timedelta(days=200)).date())
-    end = str(date.date())
-
-    ctx = market_ctx(codes, win_start, end)
-    factors = weighted_factor_tables(scfg["factor_weights"], codes, win_start, end, ctx)
-    total = combine(factors, scfg["factor_weights"])
-
-    mask = build_filter_mask(
-        date, codes, ctx["close"], ctx["volume"], ctx["amount"],
-        st_names=_st_codes(),
-        cfg={
-            "exclude_st": cfg["filters"]["exclude_st"],
-            "min_list_days": scfg["min_list_days"],
-            "exclude_suspend_days": cfg["filters"]["exclude_suspend_days"],
-            "exclude_limit_on_rebalance": cfg["filters"]["exclude_limit_on_rebalance"],
-            "min_amount": scfg["min_amount"],
-            "chase_limit": scfg["chase_limit"],
-            "falling_knife": scfg.get("falling_knife"),
-            "boards": scfg.get("boards"),
-        },
-    )
-    score = total.loc[:date].iloc[-1]
-    return score[score.index.isin(mask[mask].index)].dropna().sort_values(ascending=False)
-
-
-def build_pool(score: pd.Series, topk: int, names: dict[str, str]) -> pd.DataFrame:
-    pool = score.head(topk).rename("score").to_frame()
-    pool.index.name = "code"
-    pool.insert(0, "name", pool.index.map(lambda c: names.get(c, "")))
-    return pool.reset_index()
-
-
-def diff_pool(prev: pd.DataFrame | None, cur: pd.DataFrame) -> dict[str, list[str]]:
+def holding_days(prev: pd.DataFrame | None, date: pd.Timestamp, calendar: pd.DatetimeIndex) -> dict[str, int]:
+    """{代码: 已持有交易日数}。入池信号日 E、当前信号日 T → 持有 = E 到 T 之间的交易日数，
+    与回测中 qlib Position.get_stock_count 的口径一致（T+1 成交、每日收盘计数）。"""
     if prev is None or prev.empty:
-        return {"new": list(cur["code"]), "out": [], "kept": []}
-    p, c = set(prev["code"]), set(cur["code"])
-    return {
-        "new": sorted(c - p),
-        "out": sorted(p - c),
-        "kept": sorted(p & c),
-    }
+        return {}
+    pos = {d: i for i, d in enumerate(calendar)}
+    t = pos[date]
+    return {c: t - pos.get(pd.Timestamp(e), t) for c, e in zip(prev["code"], prev["entry_date"])}
 
 
-def save_pool(pool: pd.DataFrame, pool_type: str, date: pd.Timestamp,
-              diff: dict[str, list[str]], names: dict[str, str]) -> Path:
-    """写股池 csv + 追加简报 md。返回简报路径。"""
-    POOL_DIR.mkdir(parents=True, exist_ok=True)
-    tag = date.strftime("%Y-%m") if pool_type == "stable" else date.strftime("%Y-%m-%d")
-    csv_path = POOL_DIR / f"{pool_type}_{tag}.csv"
-    pool.to_csv(csv_path, index=False, encoding="utf-8-sig")
+@dataclass
+class Selection:
+    date: pd.Timestamp
+    result: RebalanceResult
+    table: pd.DataFrame        # 新股池
+    reference: list[str]       # 纯排名前 topk（准入通过）
+    topk: int
+    n_entry: int
+    n_scored: int
 
-    md_path = POOL_DIR / f"{pool_type}_{tag}_brief.md"
+
+def select(pool, signal: Signal, date: pd.Timestamp, prev: pd.DataFrame | None,
+           calendar: pd.DatetimeIndex, names: dict[str, str] | None = None) -> Selection:
+    names = names or {}
+    score, entry, topk = signal.on(date)
+    holdings = holding_days(prev, date, calendar)
+    res = rebalance(holdings, score, entry, topk, int(pool.strategy_params.get("n_drop", 1)),
+                    int(pool.strategy_params.get("hold_thresh", 1)))
+
+    ranked = rank_codes(score[score.notna()])
+    rank = {c: i + 1 for i, c in enumerate(ranked)}
+    prev_entry = {} if prev is None else dict(zip(prev["code"], prev["entry_date"]))
+    rows = []
+    for c in res.holdings:
+        new = c in res.buy
+        rows.append({"code": c, "name": names.get(c, ""), "score": float(score[c]), "rank": rank.get(c),
+                     "entry_date": date if new else pd.Timestamp(prev_entry[c]),
+                     "status": "新进" if new else "留存"})
+    table = pd.DataFrame(rows, columns=["code", "name", "score", "rank", "entry_date", "status"])
+    reference = rank_codes(score[entry & score.notna()])[:topk]
+    return Selection(date=date, result=res, table=table, reference=reference, topk=topk,
+                     n_entry=int((entry & score.notna()).sum()), n_scored=len(ranked))
+
+
+def save_pool(pool, sel: Selection, names: dict[str, str], meta: dict) -> tuple[Path, Path]:
+    """写股池 CSV + 简报 md。meta：data_version / config_hash / scorer / lag_days / prev_date。"""
+    d = pool_dir(pool.name)
+    d.mkdir(parents=True, exist_ok=True)
+    tag = sel.date.strftime("%Y-%m-%d")
+    csv_path, md_path = d / f"{tag}.csv", d / f"{tag}_brief.md"
+    out = sel.table.copy()
+    out["entry_date"] = pd.to_datetime(out["entry_date"]).dt.strftime("%Y-%m-%d")
+    out.to_csv(csv_path, index=False, encoding="utf-8-sig")
+
+    res = sel.result
+
     def fmt(codes: list[str]) -> str:
         return "、".join(f"{names.get(c, '')}({c})" for c in codes) or "无"
+
+    shown = out.assign(score=out["score"].round(4))
     lines = [
-        f"# {'稳健池' if pool_type == 'stable' else '短线池'} {tag} 调仓简报",
+        f"# {pool.name} 股池 {tag}",
         "",
-        f"- 池内数量: {len(pool)}",
-        f"- 新进: {fmt(diff['new'])}",
-        f"- 剔除: {fmt(diff['out'])}",
-        f"- 留存: {len(diff['kept'])} 只",
+        f"> 基于 {tag} 收盘数据，供其后首个交易日参考（数据滞后 {meta.get('lag_days', '?')} 个自然日）。",
+        f"> 数据版本 {meta.get('data_version')} · 配置 {pool.config_hash} · 打分器 {pool.scorer['name']}"
+        f" · 上期 {meta.get('prev_date') or '无（首次建仓）'}",
         "",
-        "## 本期清单",
+        f"- 池容 topk: {sel.topk}（准入通过 {sel.n_entry} 只 / 当日有分 {sel.n_scored} 只）",
+        f"- 换仓规则: n_drop={pool.strategy_params.get('n_drop')} hold_thresh={pool.strategy_params.get('hold_thresh')}",
+        f"- 新进: {fmt(res.buy)}",
+        f"- 调出（持有规则不通过）: {fmt(res.sell_exit)}",
+        f"- 调出（排名末位）: {fmt(res.sell_rank)}",
+        f"- 留存: {len(res.kept)} 只",
         "",
-        pool.to_markdown(index=False),
+        "调入/调出若因停牌、涨跌停无法成交，则顺延至下一交易日。股池等权。",
+        "",
+        "## 本期股池",
+        "",
+        shown.to_markdown(index=False),
+        "",
+        f"## 参考：准入通过的纯排名前 {sel.topk}",
+        "",
+        fmt(sel.reference),
+        "",
     ]
     md_path.write_text("\n".join(lines), encoding="utf-8")
-    return md_path
-
-
-def latest_pool(pool_type: str) -> pd.DataFrame | None:
-    files = sorted(POOL_DIR.glob(f"{pool_type}_*.csv"))
-    if not files:
-        return None
-    return pd.read_csv(files[-1], dtype={"code": str})
+    return csv_path, md_path
