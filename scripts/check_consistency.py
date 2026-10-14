@@ -7,7 +7,7 @@
 其余记为"逻辑差异"（应为 0）。出现差异后以回测持仓为准继续回放，以便检查后续每一天。
 
 用法:
-    python -X utf8 scripts/check_consistency.py --pool all --start 2024-01-02 --days 20
+    python -X utf8 scripts/check_consistency.py --pool all --start 2022-01-04 --days 20
 """
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def check_pool(name: str, start: str, days: int, scorer: str | None) -> tuple[li
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--pool", default="all")
-    ap.add_argument("--start", default="2024-01-02")
+    ap.add_argument("--start", default="2022-01-04")  # 研发区内，避免接触保留集
     ap.add_argument("--days", type=int, default=20)
     ap.add_argument("--scorer", default=None, help="覆盖打分器（如 momentum）")
     args = ap.parse_args()

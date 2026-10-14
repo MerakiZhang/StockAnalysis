@@ -84,7 +84,8 @@ def rolling_windows(calendar: pd.DatetimeIndex, first_test: str, end: str, train
 
 def model_params(pool, kind: str) -> dict:
     base = LGBM_DEFAULTS if kind == "lgbm" else LINEAR_DEFAULTS
-    params = {**base, **pool.model.get(kind, {}), **pool.scorer_params}
+    own = pool.scorer_params if pool.scorer.get("name") == kind else {}
+    params = {**base, **pool.model.get(kind, {}), **own}
     if kind == "lgbm":
         params.setdefault("seed", int(pool.model.get("seed", 42)))
     return params
@@ -107,8 +108,9 @@ def train_signature(pool, kind: str) -> str:
     return hashlib.sha1(blob.encode()).hexdigest()[:10]
 
 
-def out_dir(pool_name: str, kind: str) -> Path:
-    return MODEL_DIR / pool_name / kind
+def out_dir(pool_name: str, kind: str, signature: str) -> Path:
+    """按训练签名分目录：改模型参数不会覆盖旧版本，便于 A/B。"""
+    return MODEL_DIR / pool_name / f"{kind}_{signature}"
 
 
 def daily_ic(pred: pd.Series, label: pd.Series) -> pd.DataFrame:
@@ -176,19 +178,21 @@ def train_rolling(pool, kinds=KINDS, first_test: str | None = None, end: str | N
 
         pred_all = pd.concat(preds).sort_index()
         pred_all = pred_all[~pred_all.index.duplicated(keep="last")]
-        d = out_dir(pool.name, kind)
+        sig = train_signature(pool, kind)
+        d = out_dir(pool.name, kind, sig)
         d.mkdir(parents=True, exist_ok=True)
         pred_all.rename("score").to_frame().to_parquet(d / "pred.parquet")
         with open(d / "latest_model.pkl", "wb") as f:
             pickle.dump(model, f)
         ic = daily_ic(pred_all, label)
         manifest = {
-            "pool": pool.name, "kind": kind, "signature": train_signature(pool, kind),
+            "pool": pool.name, "kind": kind, "signature": sig,
             "data_version": data_version(), "trained_at": pd.Timestamp.now().isoformat(timespec="seconds"),
             "label_horizon": horizon, "params": params, "windows": rows,
             "pred_range": [str(pred_all.index.get_level_values(0).min().date()),
                            str(pred_all.index.get_level_values(0).max().date())],
             "ic": ic_summary(ic),
+            "ic_dev": ic_summary(ic.loc[:pool.backtest.get("in_sample_end", "2022-12-31")]),
             "ic_by_year": {str(y): ic_summary(g) for y, g in ic.groupby(ic.index.year)},
         }
         if kind == "lgbm":
@@ -205,11 +209,16 @@ def train_rolling(pool, kinds=KINDS, first_test: str | None = None, end: str | N
 
 
 # ------------------------------------------------------------------ 推理
-def load_manifest(pool_name: str, kind: str) -> dict:
-    p = out_dir(pool_name, kind) / "manifest.json"
+def load_manifest(pool, kind: str) -> tuple[dict, Path]:
+    """当前配置（训练签名）对应的训练产物。"""
+    sig = train_signature(pool, kind)
+    d = out_dir(pool.name, kind, sig)
+    p = d / "manifest.json"
     if not p.exists():
-        raise FileNotFoundError(f"{pool_name}/{kind} 尚未训练，请先运行 scripts/run_train.py --pool {pool_name}")
-    return json.loads(p.read_text(encoding="utf-8"))
+        have = sorted(x.name for x in (MODEL_DIR / pool.name).glob(f"{kind}_*")) if (MODEL_DIR / pool.name).exists() else []
+        raise FileNotFoundError(f"{pool.name}/{kind} 当前配置（签名 {sig}）尚未训练，已有: {have or '无'}；"
+                                f"请先运行 scripts/run_train.py --pool {pool.name}（参数需与选股/回测一致）")
+    return json.loads(p.read_text(encoding="utf-8")), d
 
 
 def predict(pool, kind: str, codes: list[str], dates: pd.DatetimeIndex, log=print) -> pd.DataFrame:
@@ -218,10 +227,7 @@ def predict(pool, kind: str, codes: list[str], dates: pd.DatetimeIndex, log=prin
 
     from ..factors.alpha158 import FEATURE_WARMUP_DAYS, build_handler
 
-    manifest = load_manifest(pool.name, kind)
-    if manifest["signature"] != train_signature(pool, kind):
-        log(f"[warn] {pool.name}/{kind} 当前配置与训练时不一致（{manifest['signature']}），建议重训")
-    d = out_dir(pool.name, kind)
+    manifest, d = load_manifest(pool, kind)
     pred = pd.read_parquet(d / "pred.parquet")["score"]
     dates = pd.DatetimeIndex(dates)
     last = pred.index.get_level_values(0).max()

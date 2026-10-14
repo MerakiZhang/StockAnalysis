@@ -129,3 +129,16 @@ def test_repo_pools_parse_without_validation():
         assert spec.filters and next(iter(spec.filters)) == "in_universe"
         raw = yaml.safe_load((POOLS_DIR / f"{name}.yaml").read_text(encoding="utf-8"))
         assert raw["name"] == name
+
+
+def test_parse_sets_nested_and_typed():
+    from src.config import parse_sets
+    out = parse_sets(["model.lgbm.learning_rate=0.05", "strategy.hold_thresh=10", "score_ema=null"])
+    assert out == {"model": {"lgbm": {"learning_rate": 0.05}}, "strategy": {"hold_thresh": 10}, "score_ema": None}
+
+
+def test_sets_deep_merge_into_pool():
+    spec = load_pool("hs300", validate=False, sets=["model.lgbm.learning_rate=0.05", "strategy.hold_thresh=10"])
+    assert spec.model["lgbm"]["learning_rate"] == 0.05
+    assert spec.model["label_horizon"] == 5          # 其余 global 项保留
+    assert spec.strategy == {"name": "entry_aware_topk_dropout", "n_drop": 1, "hold_thresh": 10}

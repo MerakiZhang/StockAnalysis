@@ -30,3 +30,15 @@ def test_train_and_valid_lengths():
 def test_quarterly_retrain():
     ws = rolling_windows(CAL, "2024-01-01", "2024-12-31", retrain="quarterly")
     assert [w.test[0][:7] for w in ws] == ["2024-01", "2024-04", "2024-07", "2024-10"]
+
+
+def test_model_params_scorer_section_only_for_own_kind():
+    from src.config import load_pool
+    from src.models.rolling import model_params, train_signature
+
+    lgb = load_pool("hs300", override={"scorer": {"name": "lgbm", "learning_rate": 0.05}})
+    assert model_params(lgb, "lgbm")["learning_rate"] == 0.05
+    assert "learning_rate" not in model_params(lgb, "linear")
+    base = load_pool("hs300", override={"scorer": {"name": "lgbm"}})
+    assert train_signature(lgb, "lgbm") != train_signature(base, "lgbm")
+    assert train_signature(lgb, "linear") == train_signature(base, "linear")

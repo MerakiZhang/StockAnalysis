@@ -156,16 +156,32 @@ def validate_spec(spec: PoolSpec, registries: dict) -> None:
     registries["strategies"].check_params(spec.strategy["name"], spec.strategy_params, f"{where}.strategy")
 
 
+def parse_sets(sets: list[str] | None) -> dict:
+    """["model.lgbm.learning_rate=0.05", "strategy.hold_thresh=10"] -> 嵌套 dict（值按 yaml 解析）。"""
+    out: dict = {}
+    for item in sets or []:
+        if "=" not in item:
+            raise ValueError(f"--set 需为 key.path=value 形式: {item!r}")
+        path, raw = item.split("=", 1)
+        node = out
+        keys = path.strip().split(".")
+        for k in keys[:-1]:
+            node = node.setdefault(k, {})
+        node[keys[-1]] = yaml.safe_load(raw)
+    return out
+
+
 def load_pool(name: str, pools_dir: Path | None = None, global_path: Path | None = None,
               registries: dict | None = None, validate: bool = True,
-              override: dict | None = None) -> PoolSpec:
-    """override：按顶层键**整段替换**池 yaml（如 {"scorer": {"name": "momentum"}}），
-    用于命令行覆盖与参数网格；替换后照常与 global 深合并并校验。"""
+              override: dict | None = None, sets: list[str] | None = None) -> PoolSpec:
+    """override：按顶层键**整段替换**池 yaml（如 {"scorer": {"name": "momentum"}}）；
+    sets：点路径**深合并**覆盖（如 ["model.lgbm.learning_rate=0.05"]）。
+    用于命令行覆盖与参数网格；之后照常与 global 深合并并校验。"""
     d = pools_dir or POOLS_DIR
     path = d / f"{name}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"未找到股池配置 {path}，可选: {list_pools(d)}")
-    pool_cfg = {**_read_yaml(path), **(override or {})}
+    pool_cfg = deep_merge({**_read_yaml(path), **(override or {})}, parse_sets(sets))
     return build_pool_spec(name, pool_cfg, load_global(global_path), registries, validate)
 
 
