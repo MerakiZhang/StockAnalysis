@@ -10,10 +10,11 @@ rebalance: daily          # daily / weekly / monthly
 strategy:
   name: entry_aware_topk_dropout
   n_drop: 1               # 每个调仓日最多换出只数（被持有规则强制调出的不计入）
-  hold_thresh: 3          # 持有不足 N 个交易日不因排名卖出
+  hold_thresh: 10         # 持有不足 N 个交易日不因排名卖出（研发区换手网格：三池平均最优，换手 ~29%→~13%/日）
 
 scorer:
-  name: momentum          # 冒烟用合成打分；模型阶段改为 lgbm / linear
+  name: lgbm              # qlib LGBModel + Alpha158 滚动训练（先运行 scripts/run_train.py）；对照 linear；冒烟 momentum
+# score_ema: null         # 分数 EMA 平滑：研发区网格中各池均变差，不启用
 
 # 过滤规则：exit = 持有规则（不通过即调出），entry = 准入规则（只限制新买入）
 filters:
