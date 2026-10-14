@@ -31,7 +31,8 @@ import numpy as np
 import pandas as pd
 
 from src.backtest.engine import run_backtest, scores_on_rebalance_dates, wf_segments
-from src.config import REPORT_DIR, load_config
+from src.config import REPORT_DIR, load_config, load_global
+from src.data.sync import add_sync_args, preflight
 from src.data.market import init_qlib, latest_trade_date, list_instruments
 from src.eval import log_rss
 from src.selection.universe import in_boards, is_stock, listing_dates
@@ -185,7 +186,9 @@ def main() -> None:
     ap.add_argument("--boards", default=None,
                     help="板块覆盖：逗号分隔 main,cyb,kcb,bse（覆盖 config 对应池的 boards）")
     ap.add_argument("--tag", default=None, help="报告文件名后缀（A/B 实验用，避免覆盖基线报告）")
+    add_sync_args(ap)
     args = ap.parse_args()
+    preflight(args, load_global().get("data"))  # 必须早于 init_qlib
     pools = set(args.pools.split(","))
 
     init_qlib()  # 默认 kernels=2（QLIB_KERNELS 环境变量可覆盖）

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..data.market import DEFAULT_PROVIDER
+from ..data.market import data_dir
 from ..factors.base import daily_returns
 from ..factors.technical import limit_up_threshold
 
@@ -14,7 +14,7 @@ from ..factors.technical import limit_up_threshold
 @lru_cache(maxsize=1)
 def listing_dates() -> dict[str, pd.Timestamp]:
     """从 qlib instruments/all.txt 读取每只股票的起始日期（近似上市日）。"""
-    path = Path(DEFAULT_PROVIDER) / "instruments" / "all.txt"
+    path = Path(data_dir()) / "instruments" / "all.txt"
     out: dict[str, pd.Timestamp] = {}
     with open(path, encoding="utf-8") as f:
         for line in f:

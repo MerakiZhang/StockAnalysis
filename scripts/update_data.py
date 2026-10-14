@@ -1,4 +1,4 @@
-"""数据更新入口：基本面缓存 + 数据新鲜度校验。
+"""数据更新入口：akshare 基本面缓存（行情由 src/data/sync.py 按 GitHub 版本同步）。
 
 用法：
     python scripts/update_data.py                # 全部更新
@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.data import fundamental as fd
 from src.data.market import latest_trade_date, list_instruments
+from src.data.sync import data_version
 
 
 def main() -> None:
@@ -22,7 +23,8 @@ def main() -> None:
     parser.add_argument("--start-year", type=int, default=2017)
     args = parser.parse_args()
 
-    print(f"[1/5] 行情数据最新交易日: {latest_trade_date()}")
+    # 仅提示：行情以 GitHub release 版本为准，不要求对齐最新交易日
+    print(f"[1/5] 行情数据版本 {data_version()}，最新交易日 {latest_trade_date().date()}（提示）")
 
     periods = fd.report_periods(args.start_year)
     print(f"[2/5] 业绩报表 yjbb: {len(periods)} 个报告期")

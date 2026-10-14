@@ -14,7 +14,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.config import load_config
+from src.config import load_config, load_global
+from src.data.sync import add_sync_args, preflight
 from src.data.market import latest_trade_date
 from src.selection import pool as pool_mod
 
@@ -23,7 +24,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--pool", choices=["stable", "short"], required=True)
     ap.add_argument("--date", default=None, help="默认最近交易日")
+    add_sync_args(ap)
     args = ap.parse_args()
+    preflight(args, load_global().get("data"))  # 必须早于 init_qlib
 
     cfg = load_config()
     date = pd.Timestamp(args.date) if args.date else latest_trade_date()
