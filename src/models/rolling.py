@@ -109,7 +109,9 @@ def feature_sets(pool) -> list[str]:
 def train_signature(pool, kind: str) -> str:
     """影响预测结果的配置：universe / 模型公共参数 / 模型参数 / 特征集。"""
     feats = feature_sets(pool)
-    model = {k: v for k, v in pool.model.items() if k != "features"}
+    # 只取公共参数；各模型自己的子段（model.lgbm / model.linear）已体现在 params 里，
+    # 不能整段计入，否则改 lgbm 参数会连带改变 linear 的签名
+    model = {k: v for k, v in pool.model.items() if k != "features" and k not in KINDS}
     blob = json.dumps({"universe": pool.universe, "model": model, "params": model_params(pool, kind),
                        "features": "alpha158" if feats == ["alpha158"] else "+".join(feats)},
                       sort_keys=True, default=str)

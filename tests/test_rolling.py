@@ -42,3 +42,13 @@ def test_model_params_scorer_section_only_for_own_kind():
     base = load_pool("hs300", override={"scorer": {"name": "lgbm"}})
     assert train_signature(lgb, "lgbm") != train_signature(base, "lgbm")
     assert train_signature(lgb, "linear") == train_signature(base, "linear")
+
+
+def test_linear_signature_independent_of_lgbm_settings():
+    from src.config import load_pool
+    from src.models.rolling import train_signature
+
+    a = load_pool("hs300")
+    b = load_pool("hs300", sets=["model.lgbm.learning_rate=0.3", "model.lgbm.num_leaves=31"])
+    assert train_signature(a, "linear") == train_signature(b, "linear")
+    assert train_signature(a, "lgbm") != train_signature(b, "lgbm")
