@@ -55,6 +55,14 @@ def topk_excess(signal, ctx: dict, horizon: int, ks=(5, 10, 20)) -> dict[int, pd
     return {k: excess.where(rank <= k).mean(axis=1) for k in ks}
 
 
+def daily_rank_ic(signal, ctx: dict, horizon: int) -> pd.Series:
+    """逐日 RankIC：当日指数成分（分数非空）内，分数与未来 horizon 日收益的秩相关。仅研究用途。"""
+    close = ctx["close"]
+    fwd = (close.shift(-(horizon + 1)) / close.shift(-1) - 1).reindex_like(signal.score)
+    sc = signal.score.where(fwd.notna())
+    return sc.rank(axis=1).corrwith(fwd.where(sc.notna()).rank(axis=1), axis=1)
+
+
 def compare_pool(name: str, variants: list[str], show_holdout: bool) -> list[str]:
     from src.backtest.engine import run_backtest, segment_metrics, segments
     from src.models.rolling import load_manifest
@@ -71,21 +79,21 @@ def compare_pool(name: str, variants: list[str], show_holdout: bool) -> list[str
         except FileNotFoundError as e:
             print(f"[{name}/{vname}] 跳过：{e}", flush=True)
             continue
-        ic = manifest["ic"] if show_holdout else manifest["ic_dev"]
         ctx = ctx or build_ctx(pool, start, end)  # 行情与过滤上下文各方案共用
         print(f"[{name}/{vname}] 回测 {start} ~ {end} ...", flush=True)
         signal = build_signal(pool, start, end, ctx=ctx)
         res = run_backtest(signal, pool, start, end)
         topk = topk_excess(signal, ctx, pool.model.get("label_horizon", 5))
+        ric = daily_rank_ic(signal, ctx, pool.model.get("label_horizon", 5))
         for tag, s, e in segments(start, pool.backtest.get("in_sample_end", end), end):
             if tag not in ("研发区", "保留集"):
                 continue
             m = segment_metrics(res["report"], s, e)
             tk = {f"Top{k}超额%": v.loc[s:e].mean() * 100 for k, v in topk.items()}
             rows.append({"方案": vname, "区间": tag, "签名": manifest["signature"],
-                         "RankIC": ic["rank_ic"], **tk, "超额年化": m["excess_ann"], "IR": m["ir"],
+                         "RankIC": float(ric.loc[s:e].mean()), **tk, "超额年化": m["excess_ann"], "IR": m["ir"],
                          "超额回撤": m["mdd"], "日均换手": m["turnover"], "年化成本": m["cost"]})
-        print(f"  RankIC {ic['rank_ic']:.4f} 超额 {res['excess_ann']:.2%} IR {res['ir']:.2f}", flush=True)
+        print(f"  超额 {res['excess_ann']:.2%} IR {res['ir']:.2f}", flush=True)
     span = "研发区+保留集" if show_holdout else "研发区"
     table = pd.DataFrame(rows)
     return [f"## {name}（{span}）", "",
@@ -106,7 +114,7 @@ def main() -> None:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     for name in (list_pools() if args.pool == "all" else args.pool.split(",")):
         lines = [f"# 模型对比：{name}", "", f"生成时间 {pd.Timestamp.now():%Y-%m-%d %H:%M} · 数据版本 {data_version()}", "",
-                 "RankIC 为滚动样本外预测在对应区间的均值；回测按池 yaml 的过滤与换仓规则。", ""]
+                 "RankIC 为滚动样本外预测在对应区间、当日指数成分内的逐日秩相关均值；回测按池 yaml 的过滤与换仓规则。", ""]
         lines += compare_pool(name, args.variant or DEFAULT_VARIANTS, args.show_holdout)
         out = REPORT_DIR / f"model_compare_{name}{'_' + args.tag if args.tag else ''}.md"
         out.write_text("\n".join(lines), encoding="utf-8")
