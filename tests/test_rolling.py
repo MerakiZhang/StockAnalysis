@@ -36,8 +36,8 @@ def test_model_params_scorer_section_only_for_own_kind():
     from src.config import load_pool
     from src.models.rolling import model_params, train_signature
 
-    lgb = load_pool("hs300", override={"scorer": {"name": "lgbm", "learning_rate": 0.05}})
-    assert model_params(lgb, "lgbm")["learning_rate"] == 0.05
+    lgb = load_pool("hs300", override={"scorer": {"name": "lgbm", "learning_rate": 0.1}})
+    assert model_params(lgb, "lgbm")["learning_rate"] == 0.1
     assert "learning_rate" not in model_params(lgb, "linear")
     base = load_pool("hs300", override={"scorer": {"name": "lgbm"}})
     assert train_signature(lgb, "lgbm") != train_signature(base, "lgbm")
