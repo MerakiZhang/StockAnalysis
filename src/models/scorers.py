@@ -48,3 +48,35 @@ class RandomScorer:
 
 def make_scorer(pool):
     return SCORERS.get(pool.scorer["name"])(**pool.scorer_params)
+
+
+class _RollingModelScorer:
+    """滚动训练模型打分：读取 run_train.py 产出的样本外预测，之后的日期用最近一期模型外推。
+
+    构造参数为模型超参（覆盖 global.yaml model.<kind> 与内置默认值），会计入训练签名。
+    """
+
+    kind = ""
+    warmup_days = 0  # 特征预热在模型推理内部处理
+
+    def __init__(self, **params):
+        self.params = params
+
+    def predict(self, pool, ctx: dict) -> pd.DataFrame:
+        from .rolling import predict
+
+        return predict(pool, self.kind, ctx["codes"], ctx["dates"])
+
+
+@SCORERS.register("lgbm")
+class LGBScorer(_RollingModelScorer):
+    """qlib LGBModel（LightGBM）+ Alpha158，walk-forward。"""
+
+    kind = "lgbm"
+
+
+@SCORERS.register("linear")
+class LinearScorer(_RollingModelScorer):
+    """qlib LinearModel（默认 ridge）+ Alpha158，walk-forward；作为 lgbm 的对照基线。"""
+
+    kind = "linear"

@@ -45,3 +45,7 @@ tempCodeRunnerFile.py
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 模型产物（滚动训练预测 / 模型 / qlib recorder，可重训生成）
+data/models/
+data/mlruns/
