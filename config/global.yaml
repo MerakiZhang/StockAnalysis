@@ -1,0 +1,38 @@
+# 全局默认配置。config/pools/*.yaml 与本文件深合并，池内同名项覆盖全局。
+# qlib 数据目录由 src/data/market.py 的 DEFAULT_PROVIDER 决定（默认 ~/.qlib/qlib_data/cn_data，
+# 可用环境变量 QLIB_DATA 覆盖）。
+
+# 回测初始资金（元）。按实际资金设置：5 只等权时单票约 account/5。
+account: 1000000
+
+# ---------- 数据同步（src/data/sync.py）----------
+data:
+  github_repo: chenditc/investment_data
+  auto_sync: true           # 选股/回测启动时比对 GitHub 最新 release，不一致则更新
+  proxy: null               # 如 http://127.0.0.1:7890（国内访问 GitHub 不稳定时）
+
+# ---------- 交易成本 ----------
+cost:
+  commission: 0.00025       # 佣金双边万2.5
+  stamp_tax: 0.0005         # 印花税卖出千0.5
+  slippage: 0.001           # 滑点千1（池内可覆盖）
+  min_cost: 5               # 单笔最低佣金（元）
+
+# ---------- 撮合约束 ----------
+exchange:
+  deal_price: close
+  volume_limit: 0.1         # 单票单日成交不超过当日成交量的 10%（null = 不限制）
+
+# ---------- 回测窗口 ----------
+backtest:
+  start: '2018-01-01'
+  end: null                 # null = 数据最新交易日
+  in_sample_end: '2022-12-31'   # ≤ 此日为研发区（调参/选模型），之后为保留集
+
+# ---------- 模型公共参数（lgbm / linear 共用，池内可覆盖）----------
+model:
+  label_horizon: 5          # 标签：未来 5 日收益（T+1 收盘起算）
+  train_years: 4            # 每次滚动训练窗口
+  valid_months: 6           # 早停用验证段
+  retrain: yearly           # yearly / quarterly
+  seed: 42
