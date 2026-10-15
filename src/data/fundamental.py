@@ -3,7 +3,6 @@
 数据落盘布局（data/fundamental/）：
     yjbb/yjbb_<period>.parquet        业绩报表（全市场批量，按报告期）
     fhps/fhps_<period>.parquet        分红送配（全市场批量，按报告期）
-    valuation/<CODE>_<ind>.parquet    估值时间序列（逐股增量，ind: pe_ttm/pb）
     spot/spot_<yyyymmdd>.parquet      当日快照（名称/ST 状态）
 
 防未来函数：`最新公告日期`列是公司最新公告的日期（不是该报告的披露日），
@@ -73,10 +72,6 @@ XJLL_COLMAP = {
     "公告日期": "announce_date",
 }
 
-VALUATION_INDICATORS = {
-    "pe_ttm": "市盈率(TTM)",
-    "pb": "市净率",
-}
 
 
 def _retry(fn, *args, retries: int = 3, sleep: float = 1.5, **kwargs):
@@ -183,77 +178,6 @@ def load_xjll_all(start_year: int = 2012) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-def industry_map(date: pd.Timestamp | None = None) -> dict[str, str]:
-    """code -> 行业（取自 yjbb 缓存的"所处行业"列，用最新可见报告期）。
-
-    零下载。历史行业变动无法回溯，为已知近似（与历史 ST 处理一致）。
-    """
-    yj = load_yjbb_all()
-    yj = yj[yj["industry"].notna() & (yj["industry"] != "--")]
-    if date is not None:
-        yj = yj[yj["available_date"] <= date]
-    yj = yj.sort_values("period").drop_duplicates("qlib_code", keep="last")
-    return dict(zip(yj["qlib_code"], yj["industry"]))
-
-
-def fetch_valuation(
-    code: str,
-    indicator: str = "pe_ttm",
-    use_cache: bool = True,
-) -> pd.DataFrame:
-    """单只股票估值时间序列（增量缓存）。
-
-    code 为 qlib 风格（SH600519）或纯数字（600519）。
-    返回 DataFrame[date, value]，value 为数值。
-    """
-    import akshare as ak
-
-    raw_code = code[-6:]
-    ind_cn = VALUATION_INDICATORS[indicator]
-    path = FUND_DIR / "valuation" / f"{code.upper()}_{indicator}.parquet"
-
-    cached = None
-    if use_cache and path.exists():
-        cached = pd.read_parquet(path)
-        # 缓存覆盖到最近 5 个自然日内则认为够新
-        if not cached.empty and cached["date"].max() >= pd.Timestamp.now().normalize() - pd.Timedelta(days=5):
-            return cached
-
-    period = "近一年" if cached is not None and not cached.empty else "近十年"
-    new = _retry(ak.stock_zh_valuation_baidu, symbol=raw_code, indicator=ind_cn, period=period)
-    new["date"] = pd.to_datetime(new["date"])
-    new["value"] = pd.to_numeric(new["value"], errors="coerce")
-
-    df = new if cached is None else pd.concat([cached, new])
-    df = df.drop_duplicates(subset="date").sort_values("date").reset_index(drop=True)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path, index=False)
-    return df
-
-
-def fetch_valuation_batch(
-    codes: list[str],
-    indicators: tuple[str, ...] = ("pe_ttm", "pb"),
-    sleep: float = 0.3,
-    progress: bool = True,
-) -> dict[str, list[str]]:
-    """批量抓取估值，失败的记录下来不中断。返回 {indicator: [失败code]}。"""
-    failed: dict[str, list[str]] = {ind: [] for ind in indicators}
-    total = len(codes) * len(indicators)
-    done = 0
-    for code in codes:
-        for ind in indicators:
-            done += 1
-            try:
-                fetch_valuation(code, ind)
-            except Exception:  # noqa: BLE001
-                failed[ind].append(code)
-            if progress and done % 100 == 0:
-                print(f"valuation {done}/{total}, failed={sum(map(len, failed.values()))}")
-            time.sleep(sleep)
-    return failed
-
-
 def fetch_spot(use_cache: bool = True) -> pd.DataFrame:
     """A股当日快照：code/name/is_st。当日缓存。"""
     import akshare as ak
@@ -285,23 +209,3 @@ def load_yjbb_all(start_year: int = 2012) -> pd.DataFrame:
     if not frames:
         raise FileNotFoundError("无 yjbb 缓存，请先运行 scripts/update_data.py")
     return pd.concat(frames, ignore_index=True)
-
-
-def valuation_asof(code: str, indicator: str, date: pd.Timestamp) -> float | None:
-    """某股票估值指标在 date（含）之前最近一个值。缓存未命中返回 None。"""
-    path = FUND_DIR / "valuation" / f"{code.upper()}_{indicator}.parquet"
-    if not path.exists():
-        return None
-    df = pd.read_parquet(path)
-    df = df[df["date"] <= date]
-    if df.empty:
-        return None
-    return float(df.iloc[-1]["value"])
-
-
-if __name__ == "__main__":
-    df = fetch_yjbb("20241231")
-    print("yjbb 20241231:", df.shape)
-    print(df.head(3))
-    v = fetch_valuation("SH600519", "pe_ttm")
-    print("pe_ttm SH600519:", v.shape, v["date"].min(), "->", v["date"].max())

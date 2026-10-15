@@ -30,7 +30,7 @@ src/selection/
   pool.py       select()、股池 CSV 与简报
         │
 src/backtest/
-  strategies.py STRATEGIES：entry_aware_topk_dropout（调用 rebalance）/ topk_dropout / short_pool
+  strategies.py STRATEGIES：entry_aware_topk_dropout（调用 rebalance()）
   engine.py     池无关回测、分段指标（复利口径）
 src/eval.py     IC 工具 + 内存监控
 ```
@@ -86,3 +86,20 @@ GitHub release ──sync──> cn_data（qlib 行情）
 - qlib 原版处理器整表复制会 OOM，已改用原地处理器 `CSRobustZScoreInplace`（需 `drop_raw=True`）。
 - 多池训练逐池单独进程运行；`QLIB_KERNELS=2`。
 - 报告在 `data/reports/`、模型在 `data/models/`、`data/mlruns/`（均不入库）；股池 CSV 在 `data/pool/`（入库）。
+
+## 已发现并修复的问题（2026-10 重构期间，避免重蹈覆辙）
+
+| 问题 | 后果 | 修复 |
+|------|------|------|
+| 成分股取区间并集，未按当日成分屏蔽 | 用"未来才纳入指数"的股票选股（前视偏差） | `in_universe` 强制规则（成分时点面板） |
+| 选股与回测两套过滤、两套换仓逻辑 | 选股结果与回测持仓不一致 | 统一 `build_signal` + `rebalance()`，`check_consistency.py` 逐日验证 |
+| 准入规则套在分数上 | 持仓股涨停 / 成交额偶低即被卖出 | 规则分 entry / exit，准入只限制新买入 |
+| `$volume` 单位为"手" | 成交量约束严 100 倍，卖单部分成交 | 按 `$amount × 1000 / $close` 折算 |
+| qlib 默认涨跌停时买卖全禁 | 涨停不能卖、跌停不能买（与实盘不符） | `forbid_all_trade_at_limit=False`，只按方向限制 |
+| qlib 风险指标默认简单累加 | 回撤可超过 -100% | 改用复利口径（`mode="product"`） |
+| 旧股息率因子用复权价做分母 | 截面比例随复权因子扭曲 | 每股值 × 报告期末 `$factor` ÷ 复权收盘价 |
+| 中证1000 特征处理整表复制 | 超出提交内存上限（OOM） | 原地截面标准化处理器 + `drop_raw` + 逐池单独进程 |
+| LightGBM 早停在第 1 棵树 | 分数只有几个取值、头部并列、按代码顺序截取 | 固定 200 棵树、不早停（`FixedRoundLGBModel`） |
+| 训练签名包含整个 model 段 | 改 lgbm 参数导致 linear 模型找不到 | 签名只含公共参数 + 本模型参数 |
+| GitHub 下载中途断流 | 数据包不完整、sha256 校验失败 | 断点续传 + 重试，未完成部分保留到下次 |
+

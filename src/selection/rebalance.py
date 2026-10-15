@@ -35,7 +35,7 @@ def rank_codes(score: pd.Series, codes=None) -> list[str]:
 
 def rebalance(holdings: dict[str, int], score: pd.Series, entry: pd.Series,
               topk: int, n_drop: int, hold_thresh: int = 1) -> RebalanceResult:
-    """TopkDropout 换仓规则（REFACTOR_PLAN 1.1 第 4 步）。
+    """TopkDropout 换仓规则（RULES.md 第 1 节第 4 步）。
 
     holdings: 上期股池 {代码: 已持有交易日数}；score: 当日分数（已套持有规则，NaN=不通过）；
     entry: 当日准入（True=可新买入）。与 qlib TopkDropoutStrategy 的区别：

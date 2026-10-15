@@ -65,8 +65,6 @@ def report_lines(pool, res: dict, start: str, end: str, title: str | None = None
         m = segment_metrics(res["report"], s, e)
         if m:
             lines.append(metric_row(tag, m))
-    if "stop_loss_count" in res:
-        lines += ["", f"止损 / 到期强平次数：{res['stop_loss_count']} / {res['max_hold_count']}"]
     return lines + [""]
 
 

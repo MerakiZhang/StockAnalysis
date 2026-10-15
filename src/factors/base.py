@@ -30,10 +30,6 @@ def load_wide(
     return wide
 
 
-def daily_returns(close: pd.DataFrame) -> pd.DataFrame:
-    return close.pct_change(fill_method=None)
-
-
 CTX_FIELDS = ("open", "high", "low", "close", "volume", "amount")
 
 

@@ -22,11 +22,6 @@ def listing_dates() -> dict[str, pd.Timestamp]:
     return out
 
 
-def listed_days(code: str, date: pd.Timestamp) -> int:
-    ld = listing_dates().get(code)
-    return (date - ld).days if ld is not None else 9999
-
-
 def board_of(code: str) -> str:
     c = code[-6:]
     if c.startswith("68"):
@@ -36,13 +31,6 @@ def board_of(code: str) -> str:
     if c.startswith(("4", "8", "92")):
         return "bse"
     return "main"
-
-
-def in_boards(code: str, boards: list[str] | tuple[str, ...] | None) -> bool:
-    """code 是否在允许的板块内。boards 为空/None 表示不限制。"""
-    if not boards:
-        return True
-    return board_of(code) in boards
 
 
 _STOCK_PREFIX = ("60", "68", "000", "001", "002", "003", "30", "43", "83", "87", "88", "92")

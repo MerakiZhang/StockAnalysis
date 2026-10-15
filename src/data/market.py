@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-from functools import lru_cache
 
 import pandas as pd
 import qlib
@@ -33,30 +32,6 @@ def init_qlib(provider_uri: str | None = None, kernels: int | None = None) -> No
     _initialized = True
 
 
-def get_instruments(universe: str = "csi800") -> list[str]:
-    """返回某板块成分股代码列表（如 csi300/csi500/csi800/csi1000/all）。"""
-    init_qlib()
-    return D.instruments(universe)
-
-
-@lru_cache(maxsize=32)
-def list_instruments(
-    universe: str = "csi800",
-    start: str | None = None,
-    end: str | None = None,
-) -> tuple[str, ...]:
-    """成分股代码列表（缓存）。
-
-    qlib 的板块成分文件含历史成分（含已退市股票），
-    传 start/end 可只取该区间内有效的成分。
-    """
-    init_qlib()
-    inst = D.instruments(universe)
-    return tuple(
-        D.list_instruments(inst, start_time=start, end_time=end, as_list=True)
-    )
-
-
 def load_ohlcv(
     codes: list[str] | str,
     start: str,
@@ -79,12 +54,3 @@ def latest_trade_date() -> pd.Timestamp:
     init_qlib()
     cal = D.calendar(start_time="2000-01-01")
     return pd.Timestamp(cal[-1])
-
-
-if __name__ == "__main__":
-    init_qlib()
-    codes = list(list_instruments("csi300"))[:5]
-    print("csi300 前5只:", codes)
-    df = load_ohlcv(codes, "2024-01-01", "2024-02-01", ("close", "volume"))
-    print(df.tail())
-    print("日历最后交易日:", latest_trade_date())

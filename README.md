@@ -11,7 +11,7 @@ A 股指数增强选股程序：对沪深300 / 中证500 / 中证1000 的当日�
 
 **当前三池均为观察跟踪（observe），不建议据此交易**：2023 年以来扣除成本后没有稳定超额（见 `RULES.md` 第 4 节）。
 超额为含成本（佣金 + 印花税 + 滑点）口径，日均换手约 13%，年化成本约 4.8%。
-规则与依据见 `RULES.md`，代码架构与扩展方法见 `ARCHITECTURE.md`，重构过程与决策记录见 `REFACTOR_PLAN.md`。
+规则、依据与评估记录见 `RULES.md`，代码架构、扩展方法与已修复问题见 `ARCHITECTURE.md`。
 
 ## 环境
 
@@ -64,7 +64,7 @@ src/eval.py                IC 检验工具 + 内存监控
 scripts/                   run_selection / run_train / run_backtest / run_model_compare / run_sensitivity /
                            run_factor_check / check_consistency / update_data
 tests/                     pytest 单元测试
-data/pool/{pool}/          股池输出（入库）；data/pool/legacy/ 为重构前的旧池
+data/pool/{pool}/          股池输出（入库，观察跟踪记录）
 data/models/ data/mlruns/  模型产物与 qlib Recorder（不入库，可重训生成）
 data/reports/              报告（不入库）
 ```

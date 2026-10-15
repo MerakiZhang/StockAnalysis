@@ -105,16 +105,6 @@ def test_min_amount_rolling_mean():
     assert not ok2.loc[DATES[3], "SH600000"]
 
 
-def test_chase_and_knife():
-    close = pd.DataFrame(10.0, index=DATES, columns=CODES)
-    close.loc[DATES[6]:, "SH600000"] = 14.0
-    close.loc[DATES[6]:, "SZ000001"] = 8.0
-    ctx = make_ctx(close=close)
-    assert not F.chase_limit(ctx, limit=0.3).loc[DATES[6], "SH600000"]
-    assert not F.falling_knife(ctx, limit=-0.15).loc[DATES[6], "SZ000001"]
-    assert F.chase_limit(ctx, limit=0.3).loc[DATES[6], "SZ000001"]
-
-
 def test_all_filters_have_scope():
     assert {F.scope_of(n) for n in F.FILTERS.names()} <= {"entry", "exit"}
     assert F.scope_of("in_universe") == "exit"

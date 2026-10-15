@@ -119,21 +119,5 @@ def min_amount(ctx: dict, amount: float, window: int = 20) -> pd.DataFrame:
     return avg >= float(amount)
 
 
-@FILTERS.register("chase_limit", scope="entry")
-def chase_limit(ctx: dict, limit: float, days: int = 5) -> pd.DataFrame:
-    """近 N 日累计涨幅 > limit 不准入（不追高）。"""
-    close = _base(ctx)
-    mom = close / close.shift(int(days)) - 1
-    return ~(mom > float(limit)).fillna(False)
-
-
-@FILTERS.register("falling_knife", scope="entry")
-def falling_knife(ctx: dict, limit: float, days: int = 5) -> pd.DataFrame:
-    """近 N 日累计跌幅 < limit（负数）不准入（不接飞刀）。"""
-    close = _base(ctx)
-    mom = close / close.shift(int(days)) - 1
-    return ~(mom < float(limit)).fillna(False)
-
-
 for _n in FILTERS.names():
     assert scope_of(_n) in SCOPES, _n

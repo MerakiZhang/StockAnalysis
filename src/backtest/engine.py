@@ -15,7 +15,7 @@ import pandas as pd
 
 from ..data.market import init_qlib
 from ..selection.signal import Signal
-from .strategies import STRATEGIES, ShortPoolStrategy
+from .strategies import STRATEGIES
 
 
 def scores_on_rebalance_dates(score_daily: pd.DataFrame, freq: str) -> pd.DataFrame:
@@ -143,9 +143,6 @@ def run_backtest(signal: Signal, pool, start: str, end: str) -> dict:
     )
     report, positions = portfolio_metric_dict["1day"]
     result = {"report": report, "positions": positions, **segment_metrics(report, start, end)}
-    if isinstance(strategy, ShortPoolStrategy):
-        result["stop_loss_count"] = strategy.stop_loss_count
-        result["max_hold_count"] = strategy.max_hold_count
     return result
 
 

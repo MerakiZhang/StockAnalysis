@@ -34,23 +34,12 @@ def normalize_cross_section(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------ 因子检验
-def forward_returns(close: pd.DataFrame, n: int = 20) -> pd.DataFrame:
-    """未来 N 日收益（用于 IC 检验，注意仅限研究用途，不可用于选股信号）。"""
-    return close.shift(-n) / close - 1
-
-
 def daily_rank_ic(factor: pd.DataFrame, fwd: pd.DataFrame) -> pd.Series:
     """逐日截面 RankIC（因子值与未来收益的 Spearman 相关）。"""
     fr = factor.rank(axis=1)
     rr = fwd.rank(axis=1)
     ic = fr.corrwith(rr, axis=1)
     return ic.dropna()
-
-
-def rolling_rank_ic(factor: pd.DataFrame, fwd: pd.DataFrame, window: int = 250) -> pd.Series:
-    """滚动窗口均值 RankIC（因子衰减监控）。"""
-    ic = daily_rank_ic(factor, fwd)
-    return ic.rolling(window, min_periods=window // 2).mean().dropna()
 
 
 def summarize_ic(ic: pd.Series) -> dict[str, float]:
@@ -60,26 +49,6 @@ def summarize_ic(ic: pd.Series) -> dict[str, float]:
         "icir": float(ic.mean() / ic.std()) if ic.std() else np.nan,
         "positive_rate": float((ic > 0).mean()),
     }
-
-
-def quantile_returns(
-    factor: pd.DataFrame,
-    fwd: pd.DataFrame,
-    q: int = 5,
-) -> pd.DataFrame:
-    """分层收益：按因子值分 q 组，统计各组平均未来收益（检验单调性）。"""
-    results: dict[int, list[float]] = {i: [] for i in range(1, q + 1)}
-    common_dates = factor.dropna(how="all").index.intersection(fwd.index)
-    for dt in common_dates:
-        f = factor.loc[dt].dropna()
-        r = fwd.loc[dt].reindex(f.index)  # 因子有而行情无的代码收益为 NaN，不计入分组
-        if len(f) < q * 10:
-            continue
-        grp = pd.qcut(f, q, labels=False, duplicates="drop") + 1
-        for g, sub in r.groupby(grp):
-            results[int(g)].append(sub.mean())
-    rows = {g: np.nanmean(v) if v else np.nan for g, v in results.items()}
-    return pd.Series(rows, name="mean_fwd_return").to_frame()
 
 
 def factor_correlation(factors: dict[str, pd.DataFrame]) -> pd.DataFrame:

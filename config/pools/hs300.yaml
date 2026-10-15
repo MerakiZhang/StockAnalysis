@@ -1,4 +1,4 @@
-# 沪深300 股池。规则说明见 REFACTOR_PLAN.md 第 1 节；未写的项继承 config/global.yaml。
+# 沪深300 股池。规则说明见 RULES.md；未写的项继承 config/global.yaml。
 name: hs300
 status: observe            # production = 实盘参考；observe = 只跟踪不交易
 # 2026-10 定版（lgbm 200 棵）：研发区超额 +16.9%/IR 0.89；保留集 2023+（第二次查看，非干净）-1.2%/IR -0.08 → 仅观察

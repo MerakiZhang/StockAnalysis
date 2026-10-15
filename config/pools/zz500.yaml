@@ -1,4 +1,4 @@
-# 中证500 股池。规则说明见 REFACTOR_PLAN.md 第 1 节；未写的项继承 config/global.yaml。
+# 中证500 股池。规则说明见 RULES.md；未写的项继承 config/global.yaml。
 name: zz500
 status: observe            # production = 实盘参考；observe = 只跟踪不交易
 # 2026-10 定版（lgbm 200 棵）：研发区超额 +11.1%/IR 0.61；保留集 2023+（第二次查看，非干净）-16.4%/IR -1.05 → 仅观察
