@@ -24,10 +24,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import shutil
 import tarfile
+import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,17 +71,48 @@ def _http_get_json(url: str, proxy: str | None = None, timeout: float = 20) -> d
         return json.loads(r.read().decode("utf-8"))
 
 
-def _download(url: str, dest: Path, proxy: str | None = None, timeout: float = 60) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "StockAnalysis-sync"})
-    with _opener(proxy).open(req, timeout=timeout) as r, open(dest, "wb") as f:
-        total = int(r.headers.get("Content-Length") or 0)
-        done, step = 0, 0
-        while chunk := r.read(1 << 20):
-            f.write(chunk)
-            done += len(chunk)
-            if total and done * 10 // total > step:
-                step = done * 10 // total
-                print(f"  下载 {done / 1e6:.0f}/{total / 1e6:.0f} MB", flush=True)
+def _download(url: str, dest: Path, proxy: str | None = None, timeout: float = 60,
+              retries: int = 5, backoff: float = 5.0) -> None:
+    """断点续传下载：dest 已有部分内容时用 HTTP Range 续传；连接中断自动重试。
+
+    国内访问 GitHub 常见连接中途断开（实测约 100KB/s，几十 MB 后断流），不续传几乎无法下完 570MB。
+    重试用尽仍不完整则抛 SyncError，已下载部分保留在 dest，下次运行继续。
+    """
+    total: int | None = None
+    for attempt in range(retries + 1):
+        have = dest.stat().st_size if dest.exists() else 0
+        if total and have >= total:
+            return
+        headers = {"User-Agent": "StockAnalysis-sync"}
+        if have:
+            headers["Range"] = f"bytes={have}-"
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with _opener(proxy).open(req, timeout=timeout) as r:
+                resumed = have > 0 and getattr(r, "status", 200) == 206
+                if not resumed:
+                    have = 0  # 服务器不支持 Range 或首次下载：从头写
+                length = int(r.headers.get("Content-Length") or 0)
+                total = have + length if length else total
+                if attempt or have:
+                    print(f"  续传：已有 {have / 1e6:.0f} MB（第 {attempt + 1} 次尝试）", flush=True)
+                with open(dest, "ab" if resumed else "wb") as f:
+                    done, step = have, -1
+                    while chunk := r.read(1 << 20):
+                        f.write(chunk)
+                        done += len(chunk)
+                        if total and done * 10 // total > step:
+                            step = done * 10 // total
+                            print(f"  下载 {done / 1e6:.0f}/{total / 1e6:.0f} MB", flush=True)
+            size = dest.stat().st_size
+            if total is None or size >= total:
+                return
+        except (OSError, http.client.HTTPException) as e:
+            print(f"  [下载中断] {e}", flush=True)
+        if attempt < retries:
+            time.sleep(min(60.0, backoff * 2 ** attempt))
+    have = dest.stat().st_size if dest.exists() else 0
+    raise SyncError(f"下载不完整：{have / 1e6:.0f}/{(total or 0) / 1e6:.0f} MB，已保留，下次运行续传")
 
 
 def github_latest(repo: str = DEFAULT_REPO, proxy: str | None = None) -> dict:
@@ -204,13 +237,14 @@ def swap_dirs(target: Path, new_root: Path) -> None:
 
 def _update(d: Path, latest: dict, proxy: str | None) -> None:
     tmp = d.parent / ".sync_tmp"
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    tmp.mkdir(parents=True)
-    try:
-        archive = tmp / ARCHIVE_NAME
-        print(f"[数据同步] 下载 {latest['tag']} ...", flush=True)
-        _download(latest["archive_url"], archive, proxy)
+    tmp.mkdir(parents=True, exist_ok=True)
+    archive = tmp / f"{latest['tag']}_{ARCHIVE_NAME}"
+    for f in tmp.iterdir():  # 只保留当前版本的未完成下载，其余清掉
+        if f != archive:
+            shutil.rmtree(f) if f.is_dir() else f.unlink()
+    print(f"[数据同步] 下载 {latest['tag']} ...", flush=True)
+    _download(latest["archive_url"], archive, proxy)  # 失败时保留部分文件供续传
+    try:  # 下载完整后，无论校验成败都清理临时目录
         want = latest["manifest"].get("archive_sha256")
         if want and _sha256(archive) != want:
             raise SyncError("数据包 sha256 校验失败")

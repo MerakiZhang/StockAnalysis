@@ -147,3 +147,60 @@ def test_adopt_writes_marker(tmp_path):
     res = sync.adopt("2026-10-13", d)
     assert res.status == "adopted"
     assert json.loads((d / ".version").read_text(encoding="utf-8"))["how"] == "adopt"
+
+
+class FakeResp:
+    def __init__(self, payload: bytes, status: int, total_len: int, fail_after: int | None):
+        self.payload, self.status, self.pos, self.fail_after = payload, status, 0, fail_after
+        self.headers = {"Content-Length": str(total_len)}
+
+    def read(self, n):
+        if self.fail_after is not None and self.pos >= self.fail_after:
+            raise OSError("connection reset")
+        chunk = self.payload[self.pos:self.pos + min(n, 4096)]
+        self.pos += len(chunk)
+        return chunk
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def fake_server(data: bytes, cut_first: int | None, always_fail: bool = False):
+    calls = []
+
+    class Opener:
+        def open(self, req, timeout=60):
+            rng = req.get_header("Range")
+            calls.append(rng)
+            start = int(rng.split("=")[1].rstrip("-")) if rng else 0
+            body = data[start:]
+            fail = len(body) // 3 if always_fail else (cut_first if len(calls) == 1 else None)
+            return FakeResp(body, 206 if rng else 200, len(body), fail)
+
+    return Opener(), calls
+
+
+def test_download_resumes_with_range_after_interruption(tmp_path, monkeypatch):
+    data = bytes(range(256)) * 400
+    opener, calls = fake_server(data, cut_first=30000)
+    monkeypatch.setattr(sync, "_opener", lambda proxy: opener)
+    dest = tmp_path / "a.tar.gz"
+    sync._download("http://x/a", dest, backoff=0)
+    assert dest.read_bytes() == data
+    assert len(calls) == 2 and calls[0] is None
+    resumed_from = int(calls[1].split("=")[1].rstrip("-"))
+    assert 0 < resumed_from <= 30000 + 4096          # 从中断处续传，而非从头
+
+
+def test_incomplete_download_kept_for_next_run(tmp_path, monkeypatch):
+    data = bytes(range(256)) * 400
+    opener, calls = fake_server(data, cut_first=None, always_fail=True)
+    monkeypatch.setattr(sync, "_opener", lambda proxy: opener)
+    dest = tmp_path / "a.tar.gz"
+    with pytest.raises(sync.SyncError, match="续传"):
+        sync._download("http://x/a", dest, retries=2, backoff=0)
+    assert 0 < dest.stat().st_size < len(data)
+    assert len(calls) == 3 and all(c.startswith("bytes=") for c in calls[1:])
