@@ -52,3 +52,14 @@ def test_linear_signature_independent_of_lgbm_settings():
     b = load_pool("hs300", sets=["model.lgbm.learning_rate=0.3", "model.lgbm.num_leaves=31"])
     assert train_signature(a, "linear") == train_signature(b, "linear")
     assert train_signature(a, "lgbm") != train_signature(b, "lgbm")
+
+
+def test_fixed_round_model_selected_and_picklable():
+    import pickle
+
+    from src.models.rolling import FixedRoundLGBModel, make_model
+
+    m = make_model("lgbm", {"loss": "mse", "early_stopping_rounds": 0, "num_boost_round": 7})
+    assert isinstance(m, FixedRoundLGBModel) and m.num_boost_round == 7
+    assert type(pickle.loads(pickle.dumps(m))).__name__ == "FixedRoundLGBModel"
+    assert type(make_model("lgbm", {"loss": "mse"})).__name__ == "LGBModel"
