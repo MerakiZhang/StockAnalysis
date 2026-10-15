@@ -370,7 +370,7 @@ run_backtest(signal: Signal, pool: PoolSpec, start: str, end: str) -> dict
 ### 下次可做
 
 1. 每日（或定期）`python -X utf8 scripts/run_selection.py --pool all` 积累观察记录（会先自动同步 GitHub 数据；
-   国内下载约 100KB/s，570MB 数据包需 1 小时以上，可在 global.yaml 配 `data.proxy`）。
+   国内下载约 100KB/s 且常断流，已支持断点续传 + 重试，未完成的下载会在下次运行续传；也可在 global.yaml 配 `data.proxy`）。
 2. 积累数月后，用观察期数据评估三池是否有超额，再决定是否转 production。
 3. 可选研究（只能用未来数据验证）：扩大池容（Top20 衰减较小）、更长标签周期、行业/市值中性化。
 4. 分支 `refactor/index-pools` 尚未合并到 main（需用户决定）。
