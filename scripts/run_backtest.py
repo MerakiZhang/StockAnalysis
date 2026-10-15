@@ -58,7 +58,7 @@ def report_lines(pool, res: dict, start: str, end: str, title: str | None = None
     lines = [f"## {title or pool.name}", ""]
     if res.get("error"):
         return lines + [f"ERROR: {res['error']}", ""]
-    lines += [f"- 基准 {pool.benchmark} · 打分器 {pool.scorer} · 策略 {pool.strategy} · 调仓 {pool.rebalance}"
+    lines += [f"- 状态 {pool.status} · 基准 {pool.benchmark} · 打分器 {pool.scorer} · 策略 {pool.strategy} · 调仓 {pool.rebalance}"
               f" · 资金 {pool.account:,.0f} · 配置 {pool.config_hash}", ""]
     lines += METRIC_HEADER
     for tag, s, e in segments(start, pool.backtest.get("in_sample_end", end), end):

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from ..data.market import init_qlib, latest_trade_date
-from ..factors.registry import CTX_FIELDS, market_ctx
+from ..factors.base import CTX_FIELDS, market_ctx
 from ..models.scorers import make_scorer
 from .filters import FILTERS, scope_of
 from .rebalance import calc_topk

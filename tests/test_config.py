@@ -142,3 +142,15 @@ def test_sets_deep_merge_into_pool():
     assert spec.model["lgbm"]["learning_rate"] == 0.05
     assert spec.model["label_horizon"] == 5          # 其余 global 项保留
     assert spec.strategy == {"name": "entry_aware_topk_dropout", "n_drop": 1, "hold_thresh": 10}
+
+
+def test_status_validated_and_defaults_to_observe():
+    spec = build_pool_spec("p1", POOL, GLOBAL, fake_registries())
+    assert spec.status == "observe"
+    with pytest.raises(ValueError):
+        build_pool_spec("p1", {**POOL, "status": "live"}, GLOBAL, fake_registries())
+
+
+def test_repo_pool_statuses():
+    assert load_pool("hs300", validate=False).status == "production"
+    assert load_pool("zz500", validate=False).status == "observe"

@@ -48,7 +48,9 @@ def run_pool(name: str, date: str | None, init: bool, names: dict[str, str]) -> 
 
     pool = load_pool(name)
     t = signal_date(date)
-    print(f"\n===== {name} 股池 @ {t.date()}（scorer={pool.scorer['name']}）=====", flush=True)
+    print(f"\n===== {name} 股池 @ {t.date()}（scorer={pool.scorer['name']}，status={pool.status}）=====", flush=True)
+    if pool.status != "production":
+        print(f"[注意] {name} 为 observe 池：仅观察跟踪，不建议据此交易", flush=True)
     signal = build_signal(pool, str(t.date()), str(t.date()))
     prev, prev_date = (None, None) if init else load_prev(name, t)
     calendar = pd.DatetimeIndex(D.calendar(end_time=str(t.date())))

@@ -6,8 +6,6 @@
 
 加股池 = 复制一份 pools/*.yaml 改参数，不改代码（list_pools() 自动发现）。
 加载即校验：过滤规则 / 打分器 / 回测策略的名字必须已注册，参数名必须与其签名匹配。
-
-旧接口 load_config()（读 config/selector.yaml）保留给尚未迁移的脚本，重构收尾时删除。
 """
 from __future__ import annotations
 
@@ -27,11 +25,13 @@ REPORT_DIR = PROJECT_ROOT / "data" / "reports"
 
 MANDATORY_FILTERS = ("in_universe",)  # 不可在 yaml 中关闭
 REBALANCE_FREQS = ("daily", "weekly", "monthly")
+STATUSES = ("production", "observe")  # production = 可用于实盘参考；observe = 只生成股池跟踪，不建议交易
 
 
 @dataclass
 class PoolSpec:
     name: str
+    status: str
     universe: str
     benchmark: str
     top_pct: float
@@ -118,11 +118,14 @@ def build_pool_spec(name: str, pool_cfg: dict, global_cfg: dict,
     for key in ("universe", "benchmark", "strategy", "scorer"):
         if key not in cfg:
             raise KeyError(f"池 '{name}' 缺少必填项 {key}")
+    if cfg.get("status", "observe") not in STATUSES:
+        raise ValueError(f"池 '{name}'：status 须为 {STATUSES}")
     if cfg.get("rebalance", "daily") not in REBALANCE_FREQS:
         raise ValueError(f"池 '{name}'：rebalance 须为 {REBALANCE_FREQS}")
 
     spec = PoolSpec(
         name=name,
+        status=cfg.get("status", "observe"),
         universe=cfg["universe"],
         benchmark=cfg["benchmark"],
         top_pct=float(cfg.get("top_pct", 0.01)),
@@ -183,29 +186,3 @@ def load_pool(name: str, pools_dir: Path | None = None, global_path: Path | None
         raise FileNotFoundError(f"未找到股池配置 {path}，可选: {list_pools(d)}")
     pool_cfg = deep_merge({**_read_yaml(path), **(override or {})}, parse_sets(sets))
     return build_pool_spec(name, pool_cfg, load_global(global_path), registries, validate)
-
-
-# ---------------------------------------------------------------- 旧接口（待删除）
-CONFIG_PATH = CONFIG_DIR / "selector.yaml"
-
-
-def load_config(path: str | Path | None = None, validate: bool = True) -> dict:
-    """读取旧 selector.yaml；validate=True 时校验因子名已注册。"""
-    p = Path(path) if path else CONFIG_PATH
-    cfg = yaml.safe_load(p.read_text(encoding="utf-8"))
-    if validate:
-        _validate_factors(cfg)
-    return cfg
-
-
-def _validate_factors(cfg: dict) -> None:
-    from .factors.registry import FACTORS  # 延迟导入避免循环依赖
-
-    for pool in ("stable", "short"):
-        weights = cfg.get(pool, {}).get("factor_weights", {})
-        unknown = [k for k in weights if k not in FACTORS]
-        if unknown:
-            raise KeyError(
-                f"config {pool}.factor_weights 含未注册因子: {unknown}"
-                f"（请在 src/factors/registry.py 的 FACTORS 中注册）"
-            )

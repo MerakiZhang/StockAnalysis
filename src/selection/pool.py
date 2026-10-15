@@ -109,8 +109,12 @@ def save_pool(pool, sel: Selection, names: dict[str, str], meta: dict) -> tuple[
         return "、".join(f"{names.get(c, '')}({c})" for c in codes) or "无"
 
     shown = out.assign(score=out["score"].round(4))
+    status_line = ("> **状态：production**（可作实盘参考）" if pool.status == "production" else
+                   "> **状态：observe — 仅观察跟踪，不建议据此交易**（保留集评估未通过，见 RULES.md）")
     lines = [
         f"# {pool.name} 股池 {tag}",
+        "",
+        status_line,
         "",
         f"> 基于 {tag} 收盘数据，供其后首个交易日参考（数据滞后 {meta.get('lag_days', '?')} 个自然日）。",
         f"> 数据版本 {meta.get('data_version')} · 配置 {pool.config_hash} · 打分器 {pool.scorer['name']}"

@@ -10,7 +10,27 @@ import os
 import numpy as np
 import pandas as pd
 
-from .selection.scoring import normalize_cross_section
+
+
+def winsorize_mad(s: pd.Series, n: float = 5.0) -> pd.Series:
+    """MAD 去极值（按截面调用）。"""
+    med = s.median()
+    mad = (s - med).abs().median()
+    if not np.isfinite(mad) or mad == 0:
+        return s
+    return s.clip(med - n * 1.4826 * mad, med + n * 1.4826 * mad)
+
+
+def zscore(s: pd.Series) -> pd.Series:
+    std = s.std()
+    if not np.isfinite(std) or std == 0:
+        return s * 0.0
+    return (s - s.mean()) / std
+
+
+def normalize_cross_section(df: pd.DataFrame) -> pd.DataFrame:
+    """对宽表逐行（交易日截面）做 MAD 去极值 + zscore（特征相关性分析用）。"""
+    return df.apply(lambda row: zscore(winsorize_mad(row)), axis=1)
 
 
 # ------------------------------------------------------------ 因子检验
