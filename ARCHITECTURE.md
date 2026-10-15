@@ -1,69 +1,95 @@
 # 代码架构（ARCHITECTURE）
 
-## 模块图
+## 怎么改（常见需求 → 改哪里）
+
+| 需求 | 操作 | 改代码？ |
+|------|------|---------|
+| 增加股池 | 复制 `config/pools/_template.yaml` 为 `config/pools/<名>.yaml`，填 universe / benchmark；`train --pool <名>` | 否 |
+| 暂停 / 恢复股池 | 该池 yaml `enabled: false / true`（`--pool all` 跳过暂停的池） | 否 |
+| 改所有池的池容 / 换仓 / 打分器 / 过滤 | 改 `config/pool_defaults.yaml` | 否 |
+| 只改某个池 | 在该池 yaml 写同名项覆盖（如 `rebalance: {hold_thresh: 5}`、`sizing: {topk: 10}`） | 否 |
+| 某池关闭一条默认过滤规则 | 该池 yaml `filters: {规则名: false}`（`in_universe` 不可关闭） | 否 |
+| 改资金 / 成本 / 回测窗口 / 模型公共参数 | 改 `config/global.yaml` | 否 |
+| 新增过滤规则 | `selection/filters.py` 写 `@FILTERS.register("名", scope="entry"/"exit")` 函数，yaml 的 `filters:` 声明 | 仅新增 |
+| 新增打分模型 | `models/scorers.py` 写 `@SCORERS.register("名")` 类（`predict(pool, ctx)`），yaml `scorer.name` | 仅新增 |
+| 新增回测策略 | `backtest/strategies.py` 写 `@STRATEGIES.register("名")` 工厂 `(signal, rebalance, **参数)` | 仅新增 |
+| 新增补充特征 | `features/fundamental.py` 的 `build_fundamental` 加一项并加入 `FEATURES` | 仅新增 |
+| 新增命令 | `cli/<命令>.py`（`HELP` / `add_arguments` / `run`），加入 `cli/__init__.py` 的 `COMMANDS` | 仅新增 |
+| 临时实验 | 任意命令 `--set 点路径=值 --tag 名`；模型按训练签名分目录，不覆盖正式版本 | 否 |
+
+配置合并顺序（后者覆盖前者，dict 递归合并，加载即校验未知键 / 未注册名字 / 参数名）：
 
 ```
-config/global.yaml + config/pools/*.yaml      # 规则唯一来源；池 yaml 深合并覆盖 global
-        │
-src/config.py → PoolSpec                       # 发现池、深合并、注册名/参数名校验、配置 hash
-src/registry.py                                # 通用注册表：装饰器注册 + 签名校验
-        │
-src/data/
-  sync.py        GitHub release 版本比对 → 下载 → 校验 → 原子替换 cn_data（失败保留旧数据）
-  market.py      qlib 初始化与行情读取
-  fundamental.py akshare 基本面缓存（业绩报表 / 分红 / 现金流）
-        │
-src/factors/
-  base.py           行情宽表 load_wide、行情上下文 market_ctx
-  alpha158.py       Alpha158 + 标签 → DataHandlerLP；原地截面标准化处理器
-  supplementary.py  补充基本面特征（可选，model.features 开关）
-        │
-src/models/
-  scorers.py   SCORERS：lgbm / linear（滚动模型）、momentum / random（冒烟）
-  rolling.py   滚动窗口（含 purge 空档）、训练、样本外预测拼接、按训练签名存取、外推推理
-        │
-src/selection/
-  universe.py   板块判定、成分时点面板、上市日、当前 ST
-  filters.py    FILTERS：每条规则 (ctx, **params) -> date×code 布尔面板，scope=entry|exit
-  signal.py     build_signal → Signal(score 已套 exit / entry / 逐日 topk)
-  rebalance.py  calc_topk、rebalance()（选股与回测共用的换仓规则）
-  pool.py       select()、股池 CSV 与简报
-        │
-src/backtest/
-  strategies.py STRATEGIES：entry_aware_topk_dropout（调用 rebalance()）
-  engine.py     池无关回测、分段指标（复利口径）
-src/eval.py     IC 工具 + 内存监控
+config/global.yaml → config/pool_defaults.yaml → config/pools/<name>.yaml → --scorer 等整段替换 → --set 点路径覆盖
 ```
+
+## 目录
+
+```
+config/
+  global.yaml            系统级：资金、成本、撮合、回测窗口、模型公共参数、数据同步
+  pool_defaults.yaml     所有池共用的选股规则：sizing / rebalance / signal / scorer / strategy / filters
+  pools/<name>.yaml      单个池：name / enabled / status / universe / benchmark + 覆盖项（_ 开头为模板，不加载）
+stockanalysis/
+  __main__.py            python -X utf8 -m stockanalysis <命令>
+  paths.py               所有目录位置
+  registry.py            通用注册表：装饰器注册 + 签名校验（过滤规则 / 打分器 / 策略共用）
+  runtime.py             内存监控
+  config/    schema.py   PoolSpec（Sizing / RebalanceRule 分段）
+             loader.py   池发现、按层合并、校验、配置 hash
+  data/      market.py   qlib 初始化、交易日历、OHLCV、宽表、行情上下文
+             sync.py     GitHub release 版本比对 → 断点续传下载 → 校验 → 原子替换 cn_data
+             fundamental.py  akshare 基本面缓存（业绩报表 / 分红 / 现金流）
+             reference.py    股票名称、当前 ST 名单
+  features/  labels.py   标签与前向收益口径（唯一定义）
+             processors.py   原地截面标准化处理器
+             alpha158.py     特征集 → qlib DataHandlerLP
+             fundamental.py  补充基本面特征（可选，model.features）
+  models/    scorers.py  SCORERS：lgbm / linear（滚动模型）、momentum / random（冒烟）
+             estimators.py   模型构造与参数（FixedRoundLGBModel）
+             windows.py      滚动窗口（含 purge 空档）
+             store.py        训练签名、产物目录、读写
+             training.py     滚动训练
+             inference.py    推理（样本外预测 + 最近模型外推）
+  selection/ universe.py 板块、成分时点面板、上市日
+             filters.py  FILTERS：(ctx, **参数) -> 交易日×代码 布尔面板，scope=entry|exit
+             signal.py   build_signal → Signal(score / entry / topk)
+             sizing.py   池容规则
+             rebalance.py    换仓规则（选股与回测共用）
+             selector.py     选股（纯逻辑）
+             store.py        股池 CSV 与简报读写
+             daily.py        每日选股流程
+  backtest/  engine.py   池无关回测
+             strategies.py   STRATEGIES：entry_aware_topk_dropout（调用 rebalance()）
+             metrics.py      区间指标（复利口径）与区间切分
+             runner.py       回测区间（保留集保护）与单池回测流程
+  research/  metrics.py  RankIC / TopK 超额 / IC 汇总 / 特征相关（唯一定义）
+             reports.py  Markdown 报告
+             compare.py grid.py rounds.py consistency.py factor_check.py
+  cli/       common.py   公共参数（--pool / --set / --show-holdout / --tag / 数据同步）
+             select train backtest compare grid rounds factors check sync update_data
+tests/       与包结构对应的单元测试
+data/        pool/（入库）· models/ mlruns/ reports/ fundamental/（不入库）
+```
+
+依赖方向：`cli → research / backtest / selection → models / features → data → config / paths / registry`，下层不依赖上层。
 
 ## 数据流
 
 ```
 GitHub release ──sync──> cn_data（qlib 行情）
                               │
-        Alpha158DL（表达式引擎）──> DataHandlerLP（截面标准化）──> 滚动训练 LGBModel
-                                                                      │  data/models/{pool}/{kind}_{签名}/
+        Alpha158（表达式引擎）──> DataHandlerLP（截面标准化）──> 滚动训练 LightGBM
+                                                                      │  data/models/{pool}/lgbm_{签名}/
                                                                       ▼
-行情上下文 market_ctx ──> FILTERS 面板（exit / entry）      样本外预测 / 最近模型外推
+行情上下文 ──> FILTERS 面板（exit / entry）                  样本外预测 / 最近模型外推
                 │                                                     │
-                └──────────────> build_signal（分数.where(exit)、entry、topk）<─┘
+                └──────────> build_signal（分数.where(exit)、entry、topk）<───┘
                                          │
                 ┌────────────────────────┴───────────────────────┐
-     run_selection：最后一行 + 上期股池 → rebalance()     run_backtest：整张面板 → EntryAwareTopkDropout
-                → data/pool/{pool}/{T}.csv                            （内部同样调用 rebalance()）
+     select：最后一行 + 上期股池 → rebalance()            backtest：整张面板 → EntryAwareTopkDropout
+             → data/pool/{pool}/{T}.csv                             （内部同样调用 rebalance()）
 ```
-
-## 扩展指南
-
-| 修改 | 操作 | 改代码？ |
-|------|------|---------|
-| 增加股池 | 复制 `config/pools/hs300.yaml` 改 name/universe/benchmark，`run_train.py --pool 新池` | 否 |
-| 改某池规则（池容、过滤、板块、换仓、成本、状态） | 只改该池 yaml，研发区重跑验证 | 否 |
-| 增加过滤规则 | `filters.py` 写 `@FILTERS.register("名", scope="entry"/"exit")` 函数，池 yaml 的 `filters:` 声明 | 仅新增 |
-| 换打分模型 | 池 yaml `scorer.name`（lgbm / linear）；模型参数放 `model.lgbm` 等，改后重训 | 否 |
-| 增加打分模型 | `models/scorers.py` 写 `@SCORERS.register` 类，实现 `predict(pool, ctx)` | 仅新增 |
-| 增加回测策略 | `strategies.py` 写类 + `@STRATEGIES.register` 工厂函数 | 仅新增 |
-| 增加补充特征 | `supplementary.py` 的 `build_supplementary` 增加一项并加入 `FEATURES` | 仅新增 |
-| 临时实验 | 任意脚本 `--set 点路径=值 --tag 名`，模型按训练签名分目录，不覆盖正式版本 | 否 |
 
 ## 防未来函数约定
 
@@ -84,7 +110,7 @@ GitHub release ──sync──> cn_data（qlib 行情）
 
 - 本机提交内存上限约 32G（页面文件仅 600MB）。中证1000 特征约 276 万行 × 158 列。
 - qlib 原版处理器整表复制会 OOM，已改用原地处理器 `CSRobustZScoreInplace`（需 `drop_raw=True`）。
-- 多池训练逐池单独进程运行；`QLIB_KERNELS=2`。
+- 多池训练逐池单独进程运行（`train --pool zz1000`）；`QLIB_KERNELS=2`（`__main__.py` 默认）。
 - 报告在 `data/reports/`、模型在 `data/models/`、`data/mlruns/`（均不入库）；股池 CSV 在 `data/pool/`（入库）。
 
 ## 已发现并修复的问题（2026-10 重构期间，避免重蹈覆辙）
@@ -92,7 +118,7 @@ GitHub release ──sync──> cn_data（qlib 行情）
 | 问题 | 后果 | 修复 |
 |------|------|------|
 | 成分股取区间并集，未按当日成分屏蔽 | 用"未来才纳入指数"的股票选股（前视偏差） | `in_universe` 强制规则（成分时点面板） |
-| 选股与回测两套过滤、两套换仓逻辑 | 选股结果与回测持仓不一致 | 统一 `build_signal` + `rebalance()`，`check_consistency.py` 逐日验证 |
+| 选股与回测两套过滤、两套换仓逻辑 | 选股结果与回测持仓不一致 | 统一 `build_signal` + `rebalance()`，`check` 命令逐日验证 |
 | 准入规则套在分数上 | 持仓股涨停 / 成交额偶低即被卖出 | 规则分 entry / exit，准入只限制新买入 |
 | `$volume` 单位为"手" | 成交量约束严 100 倍，卖单部分成交 | 按 `$amount × 1000 / $close` 折算 |
 | qlib 默认涨跌停时买卖全禁 | 涨停不能卖、跌停不能买（与实盘不符） | `forbid_all_trade_at_limit=False`，只按方向限制 |

@@ -1,0 +1,35 @@
+# 所有股池共用的选股规则。改这里 = 改所有池；单个池在 config/pools/<name>.yaml 覆盖同名项。
+# 规则来龙去脉与评估结果见 RULES.md。
+
+# ---------- 池容 ----------
+sizing:
+  top_pct: 0.01             # 池容 = max(min_topk, ceil(top_pct × 当日准入通过只数))
+  min_topk: 5
+  topk: null                # 指定整数则固定池容，优先于 1% 规则
+
+# ---------- 换仓（选股与回测共用 selection/rebalance.py）----------
+rebalance:
+  freq: daily               # daily / weekly / monthly
+  n_drop: 1                 # 每次最多因排名调出只数（被持有规则强制调出的不计入）
+  hold_thresh: 10           # 持有不足 N 个交易日不因排名调出（研发区换手网格：三池平均最优）
+
+# ---------- 打分 ----------
+signal:
+  score_ema: null           # 分数 EMA 平滑跨度；研发区网格中各池均变差，不启用
+scorer:
+  name: lgbm                # lgbm（Alpha158 + LightGBM 滚动训练）/ linear（对照）/ momentum、random（冒烟）
+
+# ---------- 回测策略 ----------
+strategy:
+  name: entry_aware_topk_dropout
+
+# ---------- 过滤规则 ----------
+# exit = 持有规则（不通过即调出）；entry = 准入规则（只限制新买入）
+# 单个池关闭某条：在池 yaml 写 filters: {规则名: false}；in_universe 不可关闭
+filters:
+  in_universe: {}                    # exit：当日为指数成分（强制）
+  exclude_st: {}                     # exit：仅作用于最新一天（只有当前 ST 快照）
+  boards: {boards: [main]}           # entry：main / cyb / kcb / bse
+  min_list_days: {days: 180}         # entry：上市满 N 天
+  exclude_suspend: {days: 20}        # entry：近 N 日无停牌
+  exclude_limit: {}                  # entry：当日未涨停

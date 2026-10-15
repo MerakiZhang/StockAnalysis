@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.data import sync
+from stockanalysis.data import sync
 
 
 def make_data_dir(root: Path, cal_end: str, marker: str = "old") -> Path:

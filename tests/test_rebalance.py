@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from src.selection.rebalance import rank_codes, rebalance
+from stockanalysis.selection.rebalance import rank_codes, rebalance
 
 CODES = [f"S{i:02d}" for i in range(10)]
 

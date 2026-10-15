@@ -16,55 +16,51 @@ A 股指数增强选股程序：对沪深300 / 中证500 / 中证1000 的当日�
 ## 环境
 
 ```bash
-conda activate qlib   # 含 qlib 0.9.7 / lightgbm / akshare / pytest
+conda activate qlib   # 含 qlib 0.9.7 / lightgbm / akshare / pytest；在项目根目录运行
 # qlib 数据: ~/.qlib/qlib_data/cn_data（来源 GitHub chenditc/investment_data，可用 QLIB_DATA 覆盖）
 # 内存：默认 QLIB_KERNELS=2；训练中证1000 时建议单独进程运行
 ```
 
 ## 日常使用
 
+所有功能通过一个入口调用：`python -X utf8 -m stockanalysis <命令>`（`--help` 查看参数）。
+
 ```bash
-# 1. 生成当期股池（启动时自动比对 GitHub 数据版本，落后则下载并原子替换）
-python -X utf8 scripts/run_selection.py --pool hs300        # 或 --pool all
+# 1. 生成当期股池（启动时自动比对 GitHub 数据版本，落后则断点续传下载并原子替换）
+python -X utf8 -m stockanalysis select --pool all          # 或 --pool hs300
 #    输出 data/pool/{pool}/{日期}.csv + {日期}_brief.md（新进 / 调出原因 / 留存 / 排名）
 
-# 2. 每年初（或外推超过一年时）重新滚动训练模型（固定 200 棵树）
-python -X utf8 scripts/run_train.py --pool hs300            # 各池单独运行
+# 2. 每年初（或外推超过一年时）重新滚动训练模型（中证1000 内存大，逐池单独运行）
+python -X utf8 -m stockanalysis train --pool hs300
 
-# 3. 基本面缓存（仅研究补充特征时需要，日常选股不依赖）
-python -X utf8 scripts/update_data.py
+# 3. 数据
+python -X utf8 -m stockanalysis sync --check              # 只比对数据版本
+python -X utf8 -m stockanalysis update-data               # akshare 基本面缓存（补充特征用）
 ```
 
 ## 研究与验证（默认只看研发区，保留集须加 --show-holdout）
 
 ```bash
-python -X utf8 scripts/run_backtest.py --pool all                     # 组合回测
-python -X utf8 scripts/run_model_compare.py --pool all                # 模型 A/B：RankIC + TopK 未来超额 + 回测
-python -X utf8 scripts/run_sensitivity.py --pool hs300 --hold-thresh 5,10,20
-python -X utf8 scripts/run_factor_check.py --pool all                 # 补充基本面特征体检
-python -X utf8 scripts/check_consistency.py --pool all                # 选股与回测逐日同口径检查
-python -X utf8 -m src.data.sync --check                               # 只比对数据版本
+python -X utf8 -m stockanalysis backtest --pool all                   # 组合回测
+python -X utf8 -m stockanalysis compare --pool all                    # 模型 A/B：RankIC + TopK 未来超额 + 回测
+python -X utf8 -m stockanalysis grid --pool hs300 --hold-thresh 5,10,20
+python -X utf8 -m stockanalysis rounds --pool hs300                   # LightGBM 树数选择
+python -X utf8 -m stockanalysis factors --pool all                    # 补充基本面特征体检
+python -X utf8 -m stockanalysis check --pool all                      # 选股与回测逐日同口径检查
 python -X utf8 -m pytest tests -q                                     # 单元测试
-# 任意脚本可用 --set 点路径覆盖配置，如 --set model.lgbm.learning_rate=0.1 --tag exp
+# 任意命令可用 --set 点路径覆盖配置，如 --set rebalance.hold_thresh=5 --tag exp
 ```
 
-## 目录
+## 配置与目录
 
 ```
-config/global.yaml         全局默认（资金、成本、撮合、回测窗口、模型公共参数、数据同步）
-config/pools/*.yaml        每池一个文件（加池 = 加文件）
-src/config.py              配置发现、深合并、注册表校验 → PoolSpec
-src/registry.py            通用注册表（过滤规则 / 打分器 / 策略）
-src/data/                  market（qlib）/ sync（GitHub 数据同步）/ fundamental（akshare 缓存）
-src/factors/               base（行情宽表）/ alpha158（特征与处理器）/ supplementary（补充基本面特征）
-src/selection/             universe / filters / signal / rebalance / pool
-src/models/                scorers（打分器注册表）/ rolling（滚动训练与推理）
-src/backtest/              engine（池无关回测）/ strategies（EntryAwareTopkDropout 等）
-src/eval.py                IC 检验工具 + 内存监控
-scripts/                   run_selection / run_train / run_backtest / run_model_compare / run_sensitivity /
-                           run_factor_check / check_consistency / update_data
-tests/                     pytest 单元测试
-data/pool/{pool}/          股池输出（入库，观察跟踪记录）
-data/models/ data/mlruns/  模型产物与 qlib Recorder（不入库，可重训生成）
-data/reports/              报告（不入库）
+config/global.yaml          系统级：资金、成本、撮合、回测窗口、模型公共参数、数据同步
+config/pool_defaults.yaml   所有股池共用的选股规则（池容、换仓、打分器、过滤规则）——改一处，全部池生效
+config/pools/<name>.yaml    单个股池：只写与默认不同的项（_template.yaml 为模板）
+stockanalysis/              代码包：config / data / features / models / selection / backtest / research / cli
+tests/                      单元测试
+data/pool/<name>/           股池输出（入库，观察跟踪记录）
+data/models/ data/mlruns/ data/reports/ data/fundamental/   模型、训练记录、报告、基本面缓存（不入库）
 ```
+
+加股池、改池容、改选股规则、加过滤规则等常见修改的具体做法见 `ARCHITECTURE.md` 开头的"怎么改"表。

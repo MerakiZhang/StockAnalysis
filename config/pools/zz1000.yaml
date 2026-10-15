@@ -1,29 +1,9 @@
-# 中证1000 股池。规则说明见 RULES.md；未写的项继承 config/global.yaml。
+# 中证1000 股池：只写与 config/pool_defaults.yaml 不同的项。
+# 2026-10 评估：研发区超额 +12.7%/IR 0.69；保留集 2023+（第二次查看，非干净）+0.5%/IR 0.03 → 仅观察
 name: zz1000
-status: observe            # production = 实盘参考；observe = 只跟踪不交易
-# 2026-10 定版（lgbm 200 棵）：研发区超额 +12.7%/IR 0.69；保留集 2023+（第二次查看，非干净）+0.5%/IR 0.03 → 仅观察
+enabled: true
+status: observe
 universe: csi1000
 benchmark: SH000852
-top_pct: 0.01             # 池容 = max(min_topk, ceil(top_pct × 当日准入通过只数))
-min_topk: 5
-# topk: 5                 # 可选：显式写死，优先于 1% 规则
-rebalance: daily          # daily / weekly / monthly
-
-strategy:
-  name: entry_aware_topk_dropout
-  n_drop: 1               # 每个调仓日最多换出只数（被持有规则强制调出的不计入）
-  hold_thresh: 10         # 持有不足 N 个交易日不因排名卖出（研发区换手网格：三池平均最优，换手 ~29%→~13%/日）
-
-scorer:
-  name: lgbm              # qlib LGBModel + Alpha158 滚动训练（先运行 scripts/run_train.py）；对照 linear；冒烟 momentum
-# score_ema: null         # 分数 EMA 平滑：研发区网格中各池均变差，不启用
-
-# 过滤规则：exit = 持有规则（不通过即调出），entry = 准入规则（只限制新买入）
 filters:
-  in_universe: {}                               # exit，强制：当日为指数成分
-  exclude_st: {}                                # exit，仅作用于最新一天（只有当前 ST 快照）
-  boards: {boards: [main]}                      # entry，main/cyb/kcb/bse
-  min_list_days: {days: 180}                    # entry
-  exclude_suspend: {days: 20}                   # entry，近 N 日有停牌
-  exclude_limit: {}                             # entry，当日涨停买不进
-  min_amount: {amount: 5.0e+7, window: 20}     # 近20日日均成交额（元），阈值在研发区调定
+  min_amount: {amount: 5.0e+7, window: 20}   # entry：近 20 日日均成交额（元）

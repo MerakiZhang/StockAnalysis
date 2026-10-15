@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from qlib.data.dataset.processor import CSZScoreNorm, Fillna
 
-from src.factors.alpha158 import infer_processors
+from stockanalysis.features.processors import infer_processors
 
 
 def make_df(seed=0, n_dates=6, n_inst=40):

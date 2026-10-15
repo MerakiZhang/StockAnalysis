@@ -1,11 +1,9 @@
-"""配置层：深合并、池发现、注册名与参数名校验。"""
-import shutil
-
+"""配置层：合并顺序（global → pool_defaults → pool → override → sets）、分段校验、注册名与参数名校验、池发现。"""
 import pytest
 import yaml
 
-from src.config import POOLS_DIR, build_pool_spec, deep_merge, list_pools, load_pool
-from src.registry import Registry
+from stockanalysis.config import deep_merge, list_pools, load_pool, merged_config, parse_sets
+from stockanalysis.registry import Registry
 
 
 def fake_registries():
@@ -30,127 +28,157 @@ def fake_registries():
         def __init__(self, window=20):
             ...
 
-    strategies = Registry("strategy")
+    strategies = Registry("strategy", skip=2)
 
-    @strategies.register("topk", params=("n_drop", "hold_thresh"))
-    class Topk:
-        def __init__(self, **kwargs):
-            ...
+    @strategies.register("topk")
+    def topk(signal, rebalance, slippage_bps=0):
+        ...
 
     return {"filters": filters, "scorers": scorers, "strategies": strategies}
 
 
 GLOBAL = {"account": 1e6, "cost": {"commission": 0.00025, "slippage": 0.001},
           "backtest": {"start": "2018-01-01", "in_sample_end": "2022-12-31"}}
-POOL = {"name": "p1", "universe": "csi300", "benchmark": "SH000300",
-        "strategy": {"name": "topk", "n_drop": 1},
-        "scorer": {"name": "momentum"},
-        "filters": {"boards": {"boards": ["main"]}},
-        "cost": {"slippage": 0.002}}
+DEFAULTS = {"sizing": {"top_pct": 0.01, "min_topk": 5}, "rebalance": {"freq": "daily", "n_drop": 1, "hold_thresh": 10},
+            "scorer": {"name": "momentum"}, "strategy": {"name": "topk"},
+            "filters": {"in_universe": {}, "boards": {"boards": ["main"]}}}
+POOL = {"name": "p1", "universe": "csi300", "benchmark": "SH000300", "cost": {"slippage": 0.002}}
+
+
+@pytest.fixture
+def cfg_dir(tmp_path):
+    (tmp_path / "pools").mkdir()
+    for name, data in (("global.yaml", GLOBAL), ("pool_defaults.yaml", DEFAULTS)):
+        (tmp_path / name).write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    def write_pool(name, data):
+        (tmp_path / "pools" / f"{name}.yaml").write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+
+    write_pool("p1", POOL)
+    return tmp_path, write_pool
+
+
+def load(cfg_dir, name="p1", **kw):
+    d, _ = cfg_dir
+    return load_pool(name, pools_dir=d / "pools", global_path=d / "global.yaml",
+                     defaults_path=d / "pool_defaults.yaml", registries=fake_registries(), **kw)
 
 
 def test_deep_merge_overrides_nested_only():
-    out = deep_merge({"a": {"x": 1, "y": 2}, "b": 1}, {"a": {"y": 3}})
-    assert out == {"a": {"x": 1, "y": 3}, "b": 1}
+    assert deep_merge({"a": {"x": 1, "y": 2}, "b": 1}, {"a": {"y": 3}}) == {"a": {"x": 1, "y": 3}, "b": 1}
 
 
-def test_pool_overrides_global_cost():
-    spec = build_pool_spec("p1", POOL, GLOBAL, fake_registries())
-    assert spec.cost == {"commission": 0.00025, "slippage": 0.002}
-    assert spec.backtest["start"] == "2018-01-01"
-    assert spec.account == 1e6
-
-
-def test_mandatory_filter_added_first():
-    spec = build_pool_spec("p1", POOL, GLOBAL, fake_registries())
+def test_merge_chain_global_defaults_pool(cfg_dir):
+    spec = load(cfg_dir)
+    assert spec.cost == {"commission": 0.00025, "slippage": 0.002}      # 池覆盖 global
+    assert spec.rebalance.hold_thresh == 10 and spec.rebalance.freq == "daily"   # 来自 pool_defaults
+    assert spec.sizing.min_topk == 5 and spec.sizing.topk is None
+    assert spec.enabled and spec.status == "observe"
     assert list(spec.filters) == ["in_universe", "boards"]
 
 
-def test_mandatory_filter_cannot_be_disabled():
-    pool = {**POOL, "filters": {"in_universe": False}}
+def test_pool_overrides_one_rule_and_adds_filter(cfg_dir):
+    _, write_pool = cfg_dir
+    write_pool("p2", {**POOL, "name": "p2", "rebalance": {"hold_thresh": 5},
+                      "filters": {"min_amount": {"amount": 1e8}}})
+    spec = load(cfg_dir, "p2")
+    assert spec.rebalance.hold_thresh == 5 and spec.rebalance.n_drop == 1   # 只改一项，其余继承
+    assert list(spec.filters) == ["in_universe", "boards", "min_amount"]
+
+
+def test_disable_default_filter_with_false(cfg_dir):
+    _, write_pool = cfg_dir
+    write_pool("p2", {**POOL, "name": "p2", "filters": {"boards": False}})
+    assert list(load(cfg_dir, "p2").filters) == ["in_universe"]
+
+
+def test_mandatory_filter_cannot_be_disabled(cfg_dir):
+    _, write_pool = cfg_dir
+    write_pool("p2", {**POOL, "name": "p2", "filters": {"in_universe": False}})
     with pytest.raises(ValueError):
-        build_pool_spec("p1", pool, GLOBAL, fake_registries())
+        load(cfg_dir, "p2")
 
 
-def test_unknown_filter_name():
-    pool = {**POOL, "filters": {"no_such_rule": {}}}
-    with pytest.raises(KeyError, match="no_such_rule"):
-        build_pool_spec("p1", pool, GLOBAL, fake_registries())
+def test_sets_and_override(cfg_dir):
+    spec = load(cfg_dir, sets=["rebalance.hold_thresh=3", "sizing.topk=8"],
+                override={"scorer": {"name": "momentum", "window": 5}})
+    assert spec.rebalance.hold_thresh == 3 and spec.sizing.topk == 8
+    assert spec.scorer == {"name": "momentum", "window": 5}
 
 
-def test_unknown_filter_param():
-    pool = {**POOL, "filters": {"min_amount": {"amount": 1, "windw": 5}}}
-    with pytest.raises(KeyError, match="windw"):
-        build_pool_spec("p1", pool, GLOBAL, fake_registries())
+@pytest.mark.parametrize("extra, match", [
+    ({"top_pct": 0.02}, "未知配置项"),                          # 旧版顶层写法
+    ({"sizing": {"top_pctt": 0.02}}, "top_pctt"),
+    ({"rebalance": {"freq": "hourly"}}, "freq"),
+    ({"signal": {"ema": 5}}, "ema"),
+    ({"status": "live"}, "status"),
+])
+def test_invalid_config_rejected(cfg_dir, extra, match):
+    _, write_pool = cfg_dir
+    write_pool("p2", {**POOL, "name": "p2", **extra})
+    with pytest.raises((KeyError, ValueError), match=match):
+        load(cfg_dir, "p2")
 
 
-def test_missing_required_param():
-    pool = {**POOL, "filters": {"boards": {}}}
-    with pytest.raises(KeyError, match="boards"):
-        build_pool_spec("p1", pool, GLOBAL, fake_registries())
+@pytest.mark.parametrize("extra, match", [
+    ({"filters": {"no_such_rule": {}}}, "no_such_rule"),
+    ({"filters": {"min_amount": {"amount": 1, "windw": 5}}}, "windw"),
+    ({"filters": {"min_amount": {"window": 5}}}, "amount"),   # 缺必填参数（boards: {} 会继承默认参数，不算缺）
+    ({"scorer": {"name": "nope"}}, "nope"),
+    ({"strategy": {"name": "topk", "foo": 2}}, "foo"),
+])
+def test_registry_validation(cfg_dir, extra, match):
+    _, write_pool = cfg_dir
+    write_pool("p2", {**POOL, "name": "p2", **extra})
+    with pytest.raises(KeyError, match=match):
+        load(cfg_dir, "p2")
 
 
-def test_explicit_strategy_params():
-    pool = {**POOL, "strategy": {"name": "topk", "n_drop": 1, "foo": 2}}
-    with pytest.raises(KeyError, match="foo"):
-        build_pool_spec("p1", pool, GLOBAL, fake_registries())
-
-
-def test_unknown_scorer():
-    pool = {**POOL, "scorer": {"name": "nope"}}
-    with pytest.raises(KeyError, match="nope"):
-        build_pool_spec("p1", pool, GLOBAL, fake_registries())
-
-
-def test_name_must_match_file():
+def test_name_must_match_file(cfg_dir):
+    _, write_pool = cfg_dir
+    write_pool("p2", POOL)  # name: p1
     with pytest.raises(ValueError):
-        build_pool_spec("other", POOL, GLOBAL, fake_registries())
+        load(cfg_dir, "p2")
 
 
-def test_config_hash_changes_with_params():
-    a = build_pool_spec("p1", POOL, GLOBAL, fake_registries())
-    b = build_pool_spec("p1", {**POOL, "min_topk": 6}, GLOBAL, fake_registries())
-    assert a.config_hash != b.config_hash
+def test_config_hash_changes_with_params(cfg_dir):
+    assert load(cfg_dir).config_hash != load(cfg_dir, sets=["sizing.min_topk=6"]).config_hash
 
 
-def test_list_pools_discovers_new_yaml(tmp_path):
-    for f in POOLS_DIR.glob("*.yaml"):
-        shutil.copy(f, tmp_path / f.name)
-    shutil.copy(POOLS_DIR / "hs300.yaml", tmp_path / "test_pool.yaml")
-    (tmp_path / "_template.yaml").write_text("x: 1", encoding="utf-8")
-    assert "test_pool" in list_pools(tmp_path)
-    assert "_template" not in list_pools(tmp_path)
-
-
-def test_repo_pools_parse_without_validation():
-    for name in list_pools():
-        spec = load_pool(name, validate=False)
-        assert spec.universe.startswith("csi")
-        assert spec.filters and next(iter(spec.filters)) == "in_universe"
-        raw = yaml.safe_load((POOLS_DIR / f"{name}.yaml").read_text(encoding="utf-8"))
-        assert raw["name"] == name
+def test_list_pools_enabled_and_templates(cfg_dir):
+    d, write_pool = cfg_dir
+    write_pool("p2", {**POOL, "name": "p2", "enabled": False})
+    write_pool("_template", {"name": "x"})
+    assert list_pools(d / "pools") == ["p1", "p2"]
+    assert list_pools(d / "pools", enabled_only=True) == ["p1"]
 
 
 def test_parse_sets_nested_and_typed():
-    from src.config import parse_sets
-    out = parse_sets(["model.lgbm.learning_rate=0.05", "strategy.hold_thresh=10", "score_ema=null"])
-    assert out == {"model": {"lgbm": {"learning_rate": 0.05}}, "strategy": {"hold_thresh": 10}, "score_ema": None}
+    out = parse_sets(["model.lgbm.learning_rate=0.05", "rebalance.hold_thresh=10", "signal.score_ema=null"])
+    assert out == {"model": {"lgbm": {"learning_rate": 0.05}}, "rebalance": {"hold_thresh": 10},
+                   "signal": {"score_ema": None}}
 
 
-def test_sets_deep_merge_into_pool():
-    spec = load_pool("hs300", validate=False, sets=["model.lgbm.learning_rate=0.05", "strategy.hold_thresh=10"])
-    assert spec.model["lgbm"]["learning_rate"] == 0.05
-    assert spec.model["label_horizon"] == 5          # 其余 global 项保留
-    assert spec.strategy == {"name": "entry_aware_topk_dropout", "n_drop": 1, "hold_thresh": 10}
+# ---------------------------------------------------------------- 仓库内的真实配置
+def test_repo_pools_load_and_validate():
+    for name in list_pools():
+        spec = load_pool(name)
+        assert spec.status == "observe" and spec.enabled
+        assert spec.rebalance.hold_thresh == 10 and spec.scorer["name"] == "lgbm"
+        assert next(iter(spec.filters)) == "in_universe"
+    assert "min_amount" not in load_pool("hs300").filters
+    assert "min_amount" in load_pool("zz500").filters
 
 
-def test_status_validated_and_defaults_to_observe():
-    spec = build_pool_spec("p1", POOL, GLOBAL, fake_registries())
-    assert spec.status == "observe"
-    with pytest.raises(ValueError):
-        build_pool_spec("p1", {**POOL, "status": "live"}, GLOBAL, fake_registries())
+def test_repo_pool_yaml_only_has_overrides():
+    """池 yaml 不重复 pool_defaults 的规则：保证改默认规则一处生效。"""
+    from stockanalysis.paths import POOLS_DIR
+
+    for name in list_pools():
+        raw = yaml.safe_load((POOLS_DIR / f"{name}.yaml").read_text(encoding="utf-8"))
+        assert not {"sizing", "rebalance", "scorer", "strategy"} & set(raw), name
 
 
-def test_repo_pool_statuses():
-    assert load_pool("hs300", validate=False).status == "observe"
-    assert load_pool("zz500", validate=False).status == "observe"
+def test_merged_config_keeps_model_section_for_signatures():
+    cfg = merged_config("hs300")
+    assert cfg["model"]["lgbm"]["num_boost_round"] == 200

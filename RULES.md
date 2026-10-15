@@ -1,7 +1,7 @@
 # 选股规则说明（RULES）
 
-> 规则的权威来源是 `config/global.yaml` + `config/pools/*.yaml`；本文是规则的来龙去脉与验收基线。
-> 修改规则 = 改 yaml + 只在研发区重跑验证（`run_model_compare.py` / `run_sensitivity.py`）。
+> 规则的权威来源是 `config/pool_defaults.yaml`（各池共用）+ `config/pools/*.yaml`（各池差异）+ `config/global.yaml`（系统级）；本文是规则的来龙去脉与验收基线。
+> 修改规则 = 改 yaml + 只在研发区重跑验证（`python -X utf8 -m stockanalysis compare` / `grid`）。
 > 保留集（2023+）已被查看两次（2026-10-15，见第 4 节），不再是干净样本外；今后的验证依靠 2026-10-14 起的逐日观察跟踪。
 
 ## 1. 选股流程（每个交易日收盘后，按数据最新交易日 T）

@@ -4,10 +4,11 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from src.backtest.engine import scores_on_rebalance_dates, segments
-from src.config import list_pools, load_pool
-from src.selection.pool import holding_days, select
-from src.selection.signal import Signal
+from stockanalysis.backtest.engine import scores_on_rebalance_dates
+from stockanalysis.backtest.metrics import segments
+from stockanalysis.config import RebalanceRule, list_pools, load_pool
+from stockanalysis.selection.selector import holding_days, select
+from stockanalysis.selection.signal import Signal
 
 CAL = pd.bdate_range("2024-01-01", periods=30)
 
@@ -48,7 +49,7 @@ def fake_signal(day, scores: dict, entry: dict | None = None, topk=2):
 
 
 def test_select_keeps_entry_date_and_marks_status():
-    pool = SimpleNamespace(strategy_params={"n_drop": 1, "hold_thresh": 1})
+    pool = SimpleNamespace(rebalance=RebalanceRule(n_drop=1, hold_thresh=1))
     day = CAL[10]
     sig = fake_signal(day, {"A": 3.0, "B": 2.0, "C": 1.0, "D": np.nan})
     prev = pd.DataFrame({"code": ["B", "D"], "entry_date": [CAL[3], CAL[4]]})
@@ -70,3 +71,23 @@ def test_repo_pools_validate_against_registries():
 def test_override_replaces_whole_section():
     spec = load_pool("hs300", override={"scorer": {"name": "random", "seed": 1}})
     assert spec.scorer == {"name": "random", "seed": 1}
+
+
+def test_topk_series_uses_sizing():
+    from stockanalysis.config import Sizing
+    from stockanalysis.selection.sizing import topk_series
+
+    entry = pd.DataFrame({"A": [True] * 3, "B": [True, False, True]}, index=CAL[:3])
+    assert topk_series(entry, Sizing(top_pct=0.5, min_topk=1)).tolist() == [1, 1, 1]
+    assert topk_series(entry, Sizing(topk=7)).tolist() == [7, 7, 7]
+
+
+def test_cli_parses_all_commands():
+    import pytest
+
+    from stockanalysis.cli import COMMANDS, main
+
+    for cmd in COMMANDS:
+        with pytest.raises(SystemExit) as e:
+            main([cmd, "--help"])
+        assert e.value.code == 0
