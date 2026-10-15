@@ -1,7 +1,7 @@
 # 中证1000 股池。规则说明见 REFACTOR_PLAN.md 第 1 节；未写的项继承 config/global.yaml。
 name: zz1000
 status: observe            # production = 实盘参考；observe = 只跟踪不交易
-# 2026-10 定版：研发区超额 +14.8%/IR 0.78；保留集 2023+ +2.6%/IR 0.14，Top5 头部失效 → 仅观察
+# 2026-10 定版（lgbm 200 棵）：研发区超额 +12.7%/IR 0.69；保留集 2023+（第二次查看，非干净）+0.5%/IR 0.03 → 仅观察
 universe: csi1000
 benchmark: SH000852
 top_pct: 0.01             # 池容 = max(min_topk, ceil(top_pct × 当日准入通过只数))

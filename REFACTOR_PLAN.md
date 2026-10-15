@@ -346,52 +346,31 @@ run_backtest(signal: Signal, pool: PoolSpec, start: str, end: str) -> dict
 
 ## 6. 执行进度（截至 2026-10-15，分支 `refactor/index-pools`）
 
-### 阶段状态
+### 阶段状态：P0~P8 全部完成，进入观察跟踪期
 
 | 阶段 | 状态 | 要点 |
 |------|------|------|
 | P0~P5 | ✅ | 配置/注册表、数据同步、过滤与信号、换仓与回测同口径、Alpha158 + LightGBM 滚动训练 |
 | P6 | ✅ | 补充基本面特征已实现（`model.features` 可选），**不采用**：RankIC 持平但 TopK 头部收益三池均下降 |
-| P7 | ✅（模型待修复，见下） | 模型对比、换手网格、参数冻结后保留集一次性评估；⛔ 用户决定：**仅 hs300 为 production**，zz500/zz1000 为 observe |
-| P8 | ✅ | 退役手写打分与旧配置；池 `status` 字段；旧股池归档 `data/pool/legacy/`；README/RULES/ARCHITECTURE 重写 |
-| 模型修复 | 🔶 进行中 | 见"当前问题" |
+| P7 | ✅ | 模型对比、换手网格、LightGBM 固定树数修复、保留集评估；⛔ 用户决定：**三池均为 observe** |
+| P8 | ✅ | 退役手写打分与旧配置；池 `status`；旧股池归档 `data/pool/legacy/`；README/RULES/ARCHITECTURE 重写 |
 
-### 已定决策（详见 RULES.md）
+### 定版配置（详见 RULES.md）
 
-- 打分 lgbm（Alpha158，学习率 0.05）；换仓 n_drop=1、hold_thresh=10、日频、不做分数 EMA；三池同一套参数。
-- 保留集保护：所有研究脚本默认截止 2022-12-31，`--show-holdout` 才看 2023+。
-- 保留集一次性评估（2026-10-15，配置 hash hs300 5625b6bd43 / zz500 15ce5b536a / zz1000 1825cd175f）：
-  hs300 +7.0%/IR 0.43，zz500 -1.5%/IR -0.09，zz1000 +2.6%/IR 0.14；RankIC 保持研发区 2/3 以上，但中证500/1000 Top5 头部失效。
-- 5 只组合回测噪声很大，方案比较以 RankIC 与 TopK 未来超额为主（`run_model_compare.py` 已内置）。
+- 打分 lgbm：Alpha158、学习率 0.05、固定 200 棵树不早停、5 日标签、每年重训（train 4 年 + valid 6 个月 + 空档）。
+- 换仓 n_drop=1、hold_thresh=10、日频、不做分数 EMA；主板、上市 180 天、20 日无停牌、非涨停；中证500/1000 另加 20 日均成交额 ≥5000 万。
 
-### 当前问题：LightGBM 早停退化（发现于首次生成正式股池时）
+### 关键结论
 
-- qlib LGBModel 总是早停；学习率 0.05 时部分窗口第 1 棵树后验证损失即不再下降 → 模型只有 1 棵树，
-  分数仅几个取值、头部大量并列、按代码顺序截取（hs300 2026 窗口去重比例 7%，并列 ~12 只；hs300/zz500 2022 窗口也退化）。
-  **因此保留集评估中 hs300 2026 部分来自退化模型，上表保留集结果并不干净。**已生成的 2026-10-14 股池已删除未提交。
-- ⛔ 用户决定：改为固定树数（不早停），树数只在研发区选定，重训后对保留集做"第二次查看"（报告中注明不再是干净样本外）。
-- 已完成：`FixedRoundLGBModel`（`model.lgbm.early_stopping_rounds: 0` 启用，含测试）；`scripts/run_lgbm_rounds.py`
-  （研发区各窗口训练一次 400 棵，按前 k 棵评估）。
-- 研发区树数结果（RankIC / Top5 / Top20 未来 5 日超额 %/期；对照：早停版 hs300 0.051/0.39/0.30，zz500 0.060/0.25/0.16）：
+- 研发区（2018~2022）三池超额 +11%~+17%/年；保留集（2023+）扣除成本后约为零或为负（hs300 -1.2%、zz500 -16.4%、zz1000 +0.5%）。
+- 保留集已查看两次（早停版一次、修复版一次），不再是干净样本外；**今后的验证依靠 2026-10-14 起的逐日观察跟踪**。
+- 发现并修复的问题：成分前视偏差、选股与回测口径不一致、准入规则误触发卖出、成交量单位、涨跌停全禁、
+  回撤口径、旧 dividend_yield 用复权价、中证1000 内存溢出、LightGBM 早停退化（1 棵树、分数并列、按代码截取）。
 
-  | 树数 | hs300 | zz500 | zz1000 |
-  |------|-------|-------|--------|
-  | 25 | .0525 / .367 / .284 | .0601 / .097 / .155 | 未跑完 |
-  | 50 | .0568 / .427 / .326 | .0625 / .171 / .177 | |
-  | 100 | .0599 / .438 / .373 | .0653 / .229 / .239 | |
-  | 200 | .0610 / .425 / .365 | .0653 / .330 / .252 | |
-  | 400 | .0599 / .384 / .339 | .0624 / .301 / .248 | |
+### 下次可做
 
-  初步：100~200 棵最好，400 开始回落；均优于早停版。
-
-### 下次从这里继续
-
-1. 跑 zz1000 树数研究（内存大，单独进程）：
-   `QLIB_KERNELS=2 python -X utf8 scripts/run_lgbm_rounds.py --pool zz1000`
-2. 三池统一选定树数（倾向 200，视 zz1000 结果），写入 `config/global.yaml`：
-   `model.lgbm: {learning_rate: 0.05, early_stopping_rounds: 0, num_boost_round: N}`
-3. 逐池重训：`QLIB_KERNELS=2 python -X utf8 scripts/run_train.py --pool <池> --kinds lgbm`
-4. 研发区复核：`run_model_compare.py --pool all`、`check_consistency.py --pool all`；确认去重比例≈1、无头部并列。
-5. 保留集第二次查看：`run_model_compare.py --pool all --variant "lgbm=scorer.name=lgbm" --show-holdout --tag final2`，
-   报告与 RULES.md 中注明"第二次查看，非干净样本外"；与用户确认各池 production/observe 是否调整。
-6. 更新 RULES.md 基线表；`run_selection.py --pool all` 生成首批正式股池并提交 `data/pool/`。
+1. 每日（或定期）`python -X utf8 scripts/run_selection.py --pool all` 积累观察记录（会先自动同步 GitHub 数据；
+   国内下载约 100KB/s，570MB 数据包需 1 小时以上，可在 global.yaml 配 `data.proxy`）。
+2. 积累数月后，用观察期数据评估三池是否有超额，再决定是否转 production。
+3. 可选研究（只能用未来数据验证）：扩大池容（Top20 衰减较小）、更长标签周期、行业/市值中性化。
+4. 分支 `refactor/index-pools` 尚未合并到 main（需用户决定）。

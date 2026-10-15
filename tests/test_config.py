@@ -152,5 +152,5 @@ def test_status_validated_and_defaults_to_observe():
 
 
 def test_repo_pool_statuses():
-    assert load_pool("hs300", validate=False).status == "production"
+    assert load_pool("hs300", validate=False).status == "observe"
     assert load_pool("zz500", validate=False).status == "observe"
