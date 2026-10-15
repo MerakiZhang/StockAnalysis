@@ -8,7 +8,7 @@ import pytest
 from stockanalysis.selection import filters as F
 from stockanalysis.selection.signal import combine_masks
 from stockanalysis.selection.sizing import calc_topk
-from stockanalysis.selection.universe import membership_panel
+from stockanalysis.data.universe import membership_panel
 
 DATES = pd.bdate_range("2020-08-17", periods=10)
 CODES = ["SH600000", "SZ300001", "SH688001", "SZ000001"]

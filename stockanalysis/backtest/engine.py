@@ -10,49 +10,25 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-import numpy as np
 import pandas as pd
 
 from ..data.market import init_qlib
+from ..selection.schedule import signal_mask
 from ..selection.signal import Signal
 from .metrics import segment_metrics
 from .strategies import STRATEGIES
 
 
 def scores_on_rebalance_dates(score_daily: pd.DataFrame, freq: str) -> pd.DataFrame:
-    """把日频分数宽表折叠成只在信号日有值的表（其余日期 NaN）。
+    """把日频分数宽表折叠成只在信号日有值的表（其余日期 NaN，策略当天不交易）。
 
-    freq:
-        "daily"   —— 每天都是信号日（原样返回）
-        "monthly" —— 每月首个交易日调仓，信号放在上月最后一个交易日
-        "weekly"  —— 每周首个交易日调仓（周五收盘打分），信号放在上周五
-
-    由于策略 shift=1 取数，信号日 = 调仓日的前一交易日；
-    回测区间的第一个周期没有"前一交易日"可用时，信号放在首日
-    （实际成交发生在第 2 个交易日，仅影响第一个周期）。
+    信号日见 selection/schedule.py（与选股同一日程）：daily 每天；weekly / monthly 为区间首日 +
+    每个周期的最后一个交易日（策略 shift=1，下一周期首个交易日成交）。
     """
     if freq == "daily":
         return score_daily
-    dates = pd.DatetimeIndex(score_daily.index)
-    if freq == "monthly":
-        period = dates.to_period("M")
-    elif freq == "weekly":
-        period = dates.to_period("W")
-    else:
-        raise ValueError(f"unsupported freq: {freq}")
-
-    # 每个周期首个交易日 = 调仓日（注意：PeriodIndex 不能直接用 Series.diff）
-    p = np.asarray(period)
-    is_period_first = np.empty(len(p), dtype=bool)
-    is_period_first[0] = True
-    is_period_first[1:] = p[1:] != p[:-1]
-    first_idx = np.flatnonzero(is_period_first)
-    signal_idx = np.array([i - 1 if i > 0 else 0 for i in first_idx])
-    signal_dates = dates[signal_idx]
-
-    out = pd.DataFrame(np.nan, index=dates, columns=score_daily.columns)
-    out.loc[signal_dates] = score_daily.loc[signal_dates].to_numpy()
-    return out
+    keep = signal_mask(score_daily.index, freq)
+    return score_daily.where(pd.Series(keep, index=score_daily.index), axis=0)
 
 
 def _exchange_kwargs(pool, codes: list[str]) -> dict:

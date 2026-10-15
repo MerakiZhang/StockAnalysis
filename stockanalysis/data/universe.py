@@ -1,4 +1,7 @@
-"""股票池基础判定：板块、个股识别、上市日、指数成分时点（过滤规则见 filters.py）。"""
+"""指数成分与个股参考数据（来自 qlib instruments 文件）：板块判定、个股识别、上市日、成分时点面板。
+
+过滤规则见 selection/filters.py。
+"""
 from __future__ import annotations
 
 from functools import lru_cache
@@ -6,7 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..data.market import data_dir
+from .market import data_dir
 
 
 @lru_cache(maxsize=1)
@@ -54,7 +57,7 @@ def universe_spans(universe: str, start: str, end: str) -> dict[str, list[tuple[
     """
     from qlib.data import D
 
-    from ..data.market import init_qlib
+    from .market import init_qlib
 
     init_qlib()
     spans = D.list_instruments(D.instruments(universe), start_time=start, end_time=end, as_list=False)

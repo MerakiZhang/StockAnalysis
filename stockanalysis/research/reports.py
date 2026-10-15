@@ -54,8 +54,10 @@ def train_section(pool, manifests: dict, show_holdout: bool = False) -> list[str
              f"{'研发区+保留集' if show_holdout else f'研发区（≤ {ins.date()}）'}", ""]
     for kind, m in manifests.items():
         ic = m["ic"] if show_holdout else m["ic_dev"]
-        lines += [f"## {kind}", "", f"- 训练签名 {m['signature']} · 参数 {m['params']}",
-                  f"- IC {ic['ic']:.4f} / RankIC {ic['rank_ic']:.4f} / RankICIR {ic.get('rank_ic_ir', float('nan')):.2f}",
+        ic_line = (f"- IC {ic['ic']:.4f} / RankIC {ic['rank_ic']:.4f} / RankICIR {ic.get('rank_ic_ir', float('nan')):.2f}"
+                   if pd.notna(ic["rank_ic"]) else
+                   f"- 研发区（≤ {ins.date()}）内没有测试窗口；保留集的窗口与 IC 需加 --show-holdout 查看")
+        lines += [f"## {kind}", "", f"- 训练签名 {m['signature']} · 参数 {m['params']}", ic_line,
                   "", "| 窗口 | train | valid | test | RankIC | RankICIR |", "|---|---|---|---|---|---|"]
         for w in m["windows"]:
             if not show_holdout and pd.Timestamp(w["test"][0]) > ins:

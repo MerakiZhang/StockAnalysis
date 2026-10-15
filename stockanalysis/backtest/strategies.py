@@ -32,7 +32,7 @@ def to_qlib_signal(scores: pd.DataFrame) -> pd.Series:
 
 class EntryAwareTopkDropout(TopkDropoutStrategy):
     """TopkDropout + 准入规则 + 逐日池容，买卖清单由 selection.rebalance.rebalance() 生成，
-    与选股脚本同一实现。
+    与选股（selection/selector.py）同一实现。
 
     signal 已套持有规则（NaN → 持仓调出）；entry 为准入面板，topk_series 为逐日池容，
     三者按"信号日"（成交日的前一交易日，shift=1）取值。

@@ -1,4 +1,4 @@
-# 新股池模板：复制为 config/pools/<名称>.yaml（文件名即池名，_ 开头的文件不会被加载），
+# 新股池模板：复制为 config/pools/<名称>.yaml（文件名即池名，_ 开头的文件不会被加载），把下面的 name 改成同一名称，
 # 然后运行：python -X utf8 -m stockanalysis train --pool <名称>
 # 未写的项继承 config/pool_defaults.yaml 与 config/global.yaml；可覆盖任意一项，例如：
 name: example

@@ -17,7 +17,7 @@ from ..data.reference import current_st_codes
 from ..models.scorers import make_scorer
 from .filters import FILTERS, scope_of
 from .sizing import topk_series
-from .universe import membership_panel, universe_spans
+from ..data.universe import membership_panel, universe_spans
 
 DEFAULT_WARMUP_DAYS = 60  # 自然日：覆盖 20 日滚动类规则的预热
 

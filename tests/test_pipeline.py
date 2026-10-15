@@ -91,3 +91,34 @@ def test_cli_parses_all_commands():
         with pytest.raises(SystemExit) as e:
             main([cmd, "--help"])
         assert e.value.code == 0
+
+
+def test_signal_mask_matches_period_ends():
+    from stockanalysis.selection.schedule import signal_mask
+
+    days = CAL[:10]                                  # 两周：周一 ~ 周五
+    assert signal_mask(days, "daily").all()
+    assert list(np.flatnonzero(signal_mask(days, "weekly"))) == [0, 4]   # 首日 + 第一周周五
+    month = pd.bdate_range("2024-01-25", "2024-02-06")
+    assert [d.date().isoformat() for d in month[signal_mask(month, "monthly")]] == ["2024-01-25", "2024-01-31"]
+
+
+def test_weekly_fold_uses_same_schedule():
+    from stockanalysis.selection.schedule import signal_mask
+
+    df = pd.DataFrame(1.0, index=CAL[:10], columns=["A"])
+    folded = scores_on_rebalance_dates(df, "weekly")
+    assert list(folded["A"].notna().to_numpy()) == list(signal_mask(CAL[:10], "weekly"))
+
+
+def test_select_carries_over_on_non_signal_day():
+    pool = SimpleNamespace(rebalance=RebalanceRule(n_drop=1, hold_thresh=1))
+    day = CAL[10]
+    sig = fake_signal(day, {"A": 3.0, "B": 2.0, "C": 1.0, "D": np.nan})
+    prev = pd.DataFrame({"code": ["C", "D"], "entry_date": [CAL[3], CAL[4]]})
+    sel = select(pool, sig, day, prev, CAL, rebalance_today=False)
+    assert not sel.rebalanced
+    assert set(sel.table["code"]) == {"C", "D"} and not sel.result.buy and not sel.result.sell_exit
+    assert (sel.table["status"] == "留存").all()
+    first = select(pool, sig, day, None, CAL, rebalance_today=False)   # 首次建仓不受日程限制
+    assert first.rebalanced and set(first.table["code"]) == {"A", "B"}

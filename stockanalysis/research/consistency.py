@@ -1,6 +1,6 @@
 """同口径验证：选股逐日回放 vs 回测持仓。
 
-从空仓出发，对连续 N 个信号日 T：
+从空仓出发，对连续 N 个交易日 T（非调仓日按 schedule.py 沿用上期，与回测不交易一致）：
     选股：selector.select()（与 select 命令同一函数）→ 计划在 T+1 持有的股票
     回测：同一 Signal 跑 qlib 回测 → T+1 收盘后的实际持仓
 逐日比对。停牌 / 涨停买不进 / 跌停卖不出 属于成交约束（预期内），其余记为"逻辑差异"（应为 0）。
@@ -29,13 +29,15 @@ def trade_block_reason(ctx: dict, code: str, day: pd.Timestamp, side: str) -> st
     return None
 
 
-def check_pool(name: str, start: str, days: int, scorer: str | None = None) -> tuple[list[str], int]:
+def check_pool(name: str, start: str, days: int, scorer: str | None = None,
+               sets: list[str] | None = None) -> tuple[list[str], int]:
     from ..backtest.engine import holdings_by_date, run_backtest
     from ..data.market import trade_calendar
+    from ..selection.schedule import signal_mask
     from ..selection.selector import select
     from ..selection.signal import build_ctx, build_signal
 
-    pool = load_pool(name, override={"scorer": {"name": scorer}} if scorer else None)
+    pool = load_pool(name, override={"scorer": {"name": scorer}} if scorer else None, sets=sets)
     cal = trade_calendar(start)
     sig_days, end = cal[:days], cal[days]
     s0, e0 = str(sig_days[0].date()), str(end.date())
@@ -44,12 +46,14 @@ def check_pool(name: str, start: str, days: int, scorer: str | None = None) -> t
     bt = holdings_by_date(run_backtest(signal, pool, s0, e0)["positions"])
     full_cal = trade_calendar(end=e0)
 
-    lines = [f"## {name}（scorer={pool.scorer['name']}，信号日 {sig_days[0].date()} ~ {sig_days[-1].date()}）", "",
+    on_signal = dict(zip(signal.score.index, signal_mask(signal.score.index, pool.rebalance.freq)))
+    lines = [f"## {name}（scorer={pool.scorer['name']}，调仓 {pool.rebalance.freq}，"
+             f"信号日 {sig_days[0].date()} ~ {sig_days[-1].date()}）", "",
              "| 信号日 | 选股 | 回测(T+1收盘) | 差异 |", "|--------|------|--------------|------|"]
     prev: pd.DataFrame | None = None
     n_logic = 0
     for t, d in zip(sig_days, cal[1:days + 1]):
-        sel = select(pool, signal, t, prev, full_cal)
+        sel = select(pool, signal, t, prev, full_cal, rebalance_today=bool(on_signal.get(t, True)))
         planned, actual = set(sel.table["code"]), set(bt.get(d, []))
         notes = []
         for c in sorted(planned - actual):

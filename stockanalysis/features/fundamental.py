@@ -135,7 +135,7 @@ def build_fundamental(codes: list[str], start: str, end: str, close: pd.DataFram
 def fundamental_panel(universe: str, start: str, end: str) -> pd.DataFrame:
     """供 StaticDataLoader 使用：MultiIndex(datetime, instrument) × ("feature", 名称)，float32。"""
     from ..data.market import load_wide
-    from ..selection.universe import universe_spans
+    from ..data.universe import universe_spans
 
     codes = sorted(universe_spans(universe, start, end))
     wide = load_wide(codes, f"{START_YEAR}-01-01", end, ("close", "factor"))

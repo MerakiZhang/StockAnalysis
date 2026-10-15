@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from ..registry import Registry
-from .universe import board_of, listing_dates
+from ..data.universe import board_of, listing_dates
 
 FILTERS = Registry("filter", skip=1)
 SCOPES = ("entry", "exit")

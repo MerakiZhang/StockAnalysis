@@ -4,9 +4,9 @@
 
 | 需求 | 操作 | 改代码？ |
 |------|------|---------|
-| 增加股池 | 复制 `config/pools/_template.yaml` 为 `config/pools/<名>.yaml`，填 universe / benchmark；`train --pool <名>` | 否 |
+| 增加股池 | 复制 `config/pools/_template.yaml` 为 `config/pools/<名>.yaml`，把 `name` 改成同名，填 universe / benchmark；`train --pool <名>` | 否 |
 | 暂停 / 恢复股池 | 该池 yaml `enabled: false / true`（`--pool all` 跳过暂停的池） | 否 |
-| 改所有池的池容 / 换仓 / 打分器 / 过滤 | 改 `config/pool_defaults.yaml` | 否 |
+| 改所有池的池容 / 换仓（含调仓频率）/ 打分器 / 过滤 | 改 `config/pool_defaults.yaml` | 否 |
 | 只改某个池 | 在该池 yaml 写同名项覆盖（如 `rebalance: {hold_thresh: 5}`、`sizing: {topk: 10}`） | 否 |
 | 某池关闭一条默认过滤规则 | 该池 yaml `filters: {规则名: false}`（`in_universe` 不可关闭） | 否 |
 | 改资金 / 成本 / 回测窗口 / 模型公共参数 | 改 `config/global.yaml` | 否 |
@@ -15,12 +15,12 @@
 | 新增回测策略 | `backtest/strategies.py` 写 `@STRATEGIES.register("名")` 工厂 `(signal, rebalance, **参数)` | 仅新增 |
 | 新增补充特征 | `features/fundamental.py` 的 `build_fundamental` 加一项并加入 `FEATURES` | 仅新增 |
 | 新增命令 | `cli/<命令>.py`（`HELP` / `add_arguments` / `run`），加入 `cli/__init__.py` 的 `COMMANDS` | 仅新增 |
-| 临时实验 | 任意命令 `--set 点路径=值 --tag 名`；模型按训练签名分目录，不覆盖正式版本 | 否 |
+| 临时实验 | `train / backtest / grid / check` 加 `--set 点路径=值`，`backtest / compare / grid` 加 `--tag 名`；模型按训练签名分目录，不覆盖正式版本 | 否 |
 
 配置合并顺序（后者覆盖前者，dict 递归合并，加载即校验未知键 / 未注册名字 / 参数名）：
 
 ```
-config/global.yaml → config/pool_defaults.yaml → config/pools/<name>.yaml → --scorer 等整段替换 → --set 点路径覆盖
+config/global.yaml → config/pool_defaults.yaml → config/pools/<name>.yaml → --scorer 整段替换 → --set 点路径覆盖
 ```
 
 ## 目录
@@ -41,6 +41,7 @@ stockanalysis/
              sync.py     GitHub release 版本比对 → 断点续传下载 → 校验 → 原子替换 cn_data
              fundamental.py  akshare 基本面缓存（业绩报表 / 分红 / 现金流）
              reference.py    股票名称、当前 ST 名单
+             universe.py     指数成分时点面板、板块判定、上市日（qlib instruments 文件）
   features/  labels.py   标签与前向收益口径（唯一定义）
              processors.py   原地截面标准化处理器
              alpha158.py     特征集 → qlib DataHandlerLP
@@ -51,11 +52,11 @@ stockanalysis/
              store.py        训练签名、产物目录、读写
              training.py     滚动训练
              inference.py    推理（样本外预测 + 最近模型外推）
-  selection/ universe.py 板块、成分时点面板、上市日
-             filters.py  FILTERS：(ctx, **参数) -> 交易日×代码 布尔面板，scope=entry|exit
+  selection/ filters.py  FILTERS：(ctx, **参数) -> 交易日×代码 布尔面板，scope=entry|exit
              signal.py   build_signal → Signal(score / entry / topk)
              sizing.py   池容规则
              rebalance.py    换仓规则（选股与回测共用）
+             schedule.py     调仓日程：哪些交易日是信号日（选股与回测共用）
              selector.py     选股（纯逻辑）
              store.py        股池 CSV 与简报读写
              daily.py        每日选股流程
@@ -72,7 +73,8 @@ tests/       与包结构对应的单元测试
 data/        pool/（入库）· models/ mlruns/ reports/ fundamental/（不入库）
 ```
 
-依赖方向：`cli → research / backtest / selection → models / features → data → config / paths / registry`，下层不依赖上层。
+依赖方向：`cli → research → backtest → selection → models → features → data → paths / registry / runtime`，下层不依赖上层。
+`config` 被各层使用；唯一的反向引用是 `config/loader.py` 校验时延迟导入三个注册表（FILTERS / SCORERS / STRATEGIES），以便在加载配置时就报出未注册的名字。
 
 ## 数据流
 

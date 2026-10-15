@@ -1,4 +1,7 @@
-"""选股：上期股池 + 当日信号 → rebalance() → Selection（纯逻辑，不读写文件；文件见 store.py）。"""
+"""选股：上期股池 + 当日信号 → rebalance() → Selection（纯逻辑，不读写文件；文件见 store.py）。
+
+非信号日（weekly / monthly 池，见 schedule.py）沿用上期股池不换仓，与回测在非信号日不交易一致。
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -28,14 +31,22 @@ class Selection:
     topk: int
     n_entry: int
     n_scored: int
+    rebalanced: bool = True    # False = 非信号日，沿用上期股池
 
 
 def select(pool, signal: Signal, date: pd.Timestamp, prev: pd.DataFrame | None,
-           calendar: pd.DatetimeIndex, names: dict[str, str] | None = None) -> Selection:
+           calendar: pd.DatetimeIndex, names: dict[str, str] | None = None,
+           rebalance_today: bool = True) -> Selection:
+    """rebalance_today=False（非信号日）且有上期股池时，原样沿用上期持仓。"""
     names = names or {}
     score, entry, topk = signal.on(date)
     holdings = holding_days(prev, date, calendar)
-    res = rebalance(holdings, score, entry, topk, pool.rebalance.n_drop, pool.rebalance.hold_thresh)
+    carry = not rebalance_today and bool(holdings)
+    if carry:
+        kept = rank_codes(score, list(holdings))
+        res = RebalanceResult(holdings=kept, buy=[], sell_exit=[], sell_rank=[], kept=kept)
+    else:
+        res = rebalance(holdings, score, entry, topk, pool.rebalance.n_drop, pool.rebalance.hold_thresh)
 
     ranked = rank_codes(score[score.notna()])
     rank = {c: i + 1 for i, c in enumerate(ranked)}
@@ -43,10 +54,10 @@ def select(pool, signal: Signal, date: pd.Timestamp, prev: pd.DataFrame | None,
     rows = []
     for c in res.holdings:
         new = c in res.buy
-        rows.append({"code": c, "name": names.get(c, ""), "score": float(score[c]), "rank": rank.get(c),
+        rows.append({"code": c, "name": names.get(c, ""), "score": float(score.get(c, float("nan"))), "rank": rank.get(c),
                      "entry_date": date if new else pd.Timestamp(prev_entry[c]),
                      "status": "新进" if new else "留存"})
     table = pd.DataFrame(rows, columns=["code", "name", "score", "rank", "entry_date", "status"])
     reference = rank_codes(score[entry & score.notna()])[:topk]
     return Selection(date=date, result=res, table=table, reference=reference, topk=topk,
-                     n_entry=int((entry & score.notna()).sum()), n_scored=len(ranked))
+                     n_entry=int((entry & score.notna()).sum()), n_scored=len(ranked), rebalanced=not carry)

@@ -10,7 +10,7 @@ A 股指数增强选股程序：对沪深300 / 中证500 / 中证1000 的当日�
 | zz1000 | observe | 中证1000 | +12.7% / 0.69 | +0.5% / 0.03 |
 
 **当前三池均为观察跟踪（observe），不建议据此交易**：2023 年以来扣除成本后没有稳定超额（见 `RULES.md` 第 4 节）。
-超额为含成本（佣金 + 印花税 + 滑点）口径，日均换手约 13%，年化成本约 4.8%。
+超额为含成本（佣金 + 印花税 + 滑点）口径；三池日均换手约 11%~14%，年化成本约 4%~5%。
 规则、依据与评估记录见 `RULES.md`，代码架构、扩展方法与已修复问题见 `ARCHITECTURE.md`。
 
 ## 环境
@@ -42,13 +42,14 @@ python -X utf8 -m stockanalysis update-data               # akshare 基本面缓
 
 ```bash
 python -X utf8 -m stockanalysis backtest --pool all                   # 组合回测
-python -X utf8 -m stockanalysis compare --pool all                    # 模型 A/B：RankIC + TopK 未来超额 + 回测
+python -X utf8 -m stockanalysis compare --pool all                    # 模型 A/B：RankIC + TopK 未来超额 + 回测（各方案需已 train）
 python -X utf8 -m stockanalysis grid --pool hs300 --hold-thresh 5,10,20
 python -X utf8 -m stockanalysis rounds --pool hs300                   # LightGBM 树数选择
 python -X utf8 -m stockanalysis factors --pool all                    # 补充基本面特征体检
 python -X utf8 -m stockanalysis check --pool all                      # 选股与回测逐日同口径检查
 python -X utf8 -m pytest tests -q                                     # 单元测试
-# 任意命令可用 --set 点路径覆盖配置，如 --set rebalance.hold_thresh=5 --tag exp
+# train / backtest / grid / check 可用 --set 点路径覆盖配置（如 --set rebalance.hold_thresh=5）；
+# backtest / compare / grid 可用 --tag 给报告加后缀，避免覆盖已有报告
 ```
 
 ## 配置与目录

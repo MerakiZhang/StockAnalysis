@@ -9,7 +9,7 @@ sizing:
 
 # ---------- 换仓（选股与回测共用 selection/rebalance.py）----------
 rebalance:
-  freq: daily               # daily / weekly / monthly
+  freq: daily               # daily / weekly / monthly；后两者只在每周 / 每月最后一个交易日换仓，其余日子沿用上期股池
   n_drop: 1                 # 每次最多因排名调出只数（被持有规则强制调出的不计入）
   hold_thresh: 10           # 持有不足 N 个交易日不因排名调出（研发区换手网格：三池平均最优）
 

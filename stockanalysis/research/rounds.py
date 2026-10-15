@@ -18,7 +18,7 @@ def run_rounds(name: str, rounds: list[int]) -> list[str]:
     from ..models.estimators import make_model, model_params
     from ..models.store import feature_sets
     from ..models.windows import pool_windows
-    from ..selection.universe import board_of
+    from ..data.universe import board_of
     from .metrics import rank_ic, score_ties, topk_excess
 
     pool = load_pool(name, sets=["scorer.name=lgbm"])

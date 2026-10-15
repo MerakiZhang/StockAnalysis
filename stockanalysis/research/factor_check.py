@@ -15,7 +15,7 @@ def check_pool(name: str, show_holdout: bool = False) -> list[str]:
     from ..features.fundamental import FEATURES, START_YEAR, build_fundamental
     from ..features.labels import forward_returns
     from ..selection.filters import boards as boards_filter
-    from ..selection.universe import membership_panel, universe_spans
+    from ..data.universe import membership_panel, universe_spans
     from .metrics import factor_correlation, rank_ic, summarize_ic
 
     pool = load_pool(name)

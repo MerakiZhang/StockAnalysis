@@ -27,7 +27,7 @@ def load_prev(name: str, before: pd.Timestamp) -> tuple[pd.DataFrame | None, pd.
 
 
 def save_pool(pool, sel: Selection, names: dict[str, str], meta: dict) -> tuple[Path, Path]:
-    """写股池 CSV + 简报 md。meta：data_version / config_hash / scorer / lag_days / prev_date。"""
+    """写股池 CSV + 简报 md。meta：data_version / prev_date / lag_days（配置 hash、打分器取自 pool）。"""
     d = pool_dir(pool.name)
     d.mkdir(parents=True, exist_ok=True)
     tag = sel.date.strftime("%Y-%m-%d")
@@ -54,7 +54,8 @@ def save_pool(pool, sel: Selection, names: dict[str, str], meta: dict) -> tuple[
         f" · 上期 {meta.get('prev_date') or '无（首次建仓）'}",
         "",
         f"- 池容 topk: {sel.topk}（准入通过 {sel.n_entry} 只 / 当日有分 {sel.n_scored} 只）",
-        f"- 换仓规则: {pool.rebalance.freq} n_drop={pool.rebalance.n_drop} hold_thresh={pool.rebalance.hold_thresh}",
+        f"- 换仓规则: {pool.rebalance.freq} n_drop={pool.rebalance.n_drop} hold_thresh={pool.rebalance.hold_thresh}"
+        + ("" if sel.rebalanced else f"（今日非 {pool.rebalance.freq} 信号日，沿用上期股池）"),
         f"- 新进: {fmt(res.buy)}",
         f"- 调出（持有规则不通过）: {fmt(res.sell_exit)}",
         f"- 调出（排名末位）: {fmt(res.sell_rank)}",
