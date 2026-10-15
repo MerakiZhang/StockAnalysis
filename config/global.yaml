@@ -38,3 +38,5 @@ model:
   seed: 42
   lgbm:                     # 覆盖 qlib Alpha158 基准参数（src/models/rolling.py LGBM_DEFAULTS）
     learning_rate: 0.05     # 研发区 RankIC 三池均优于 0.2（hs300 .051/.049 zz500 .060/.056 zz1000 .094/.089）
+    early_stopping_rounds: 0   # 不早停：早停在部分窗口第 1 棵树即停止，模型退化、分数大量并列
+    num_boost_round: 200       # 研发区树数研究（25~400）：200 棵 RankIC 三池最高，Top5 两池最高
