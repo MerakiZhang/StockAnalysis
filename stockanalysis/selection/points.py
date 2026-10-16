@@ -58,7 +58,8 @@ def _cond(ctx: dict, name: str, params: dict | None) -> pd.DataFrame:
     return out.reindex(index=ctx["close"].index, columns=ctx["close"].columns).fillna(False).astype(bool)
 
 
-def build_point_signal(pool, start: str, end: str, ctx: dict | None = None) -> PointSignal:
+def build_point_signal(pool, start: str, end: str, ctx: dict | None = None, with_extra: bool = True) -> PointSignal:
+    """with_extra=False：不算简报用的均线 / 条件分解面板（网格研究省内存）。"""
     from ..features import regime
     from ..features import technical as tech
     from ..features.fundamental import industry_map
@@ -105,7 +106,7 @@ def build_point_signal(pool, start: str, end: str, ctx: dict | None = None) -> P
     reg = regime.state(ctx, pool.benchmark, **spec.regime).reindex(ctx["close"].index).fillna(True)
 
     ind = industry_map().reindex(ctx["close"].columns)
-    extra = {"ma10": cut(tech.get(ctx, "ma10")), "ma20": cut(tech.get(ctx, "ma20")),
+    extra = {} if not with_extra else {"ma10": cut(tech.get(ctx, "ma10")), "ma20": cut(tech.get(ctx, "ma20")),
              "ma60": cut(tech.get(ctx, "ma60")), "ma250": cut(tech.get(ctx, "ma250")),
              "factor": cut(ctx["factor"]).astype(np.float64),   # 复权价 / factor = 不复权价（简报显示用）
              "buy_parts": {n: cut(_cond(ctx, n, p)) for n, p in spec.buy.items()},
@@ -134,9 +135,12 @@ def slice_from(ps: PointSignal, i0: int) -> PointSignal:
             return {k: cut(v) for k, v in x.items()}
         return x
 
-    return PointSignal(
+    sub = PointSignal(
         dates=ps.dates[i0:], codes=ps.codes, close=ps.close[i0:], buy=ps.buy[i0:], buy_hits=cut(ps.buy_hits),
         sell_hits=cut(ps.sell_hits), exit_ok=ps.exit_ok[i0:], eligible=ps.eligible[i0:], score=ps.score[i0:],
         score_pct=ps.score_pct[i0:], atr=ps.atr[i0:], can_buy=ps.can_buy[i0:], can_sell=ps.can_sell[i0:],
         regime_ok=ps.regime_ok[i0:], signal_day=np.r_[True, ps.signal_day[i0 + 1:]],   # 起点当天建仓
-        industry=ps.industry, extra=cut(ps.extra), fill=ps.fill[i0:])
+        industry=ps.industry, extra=cut(ps.extra))
+    if ps.fill is not ps.close:
+        sub.fill = ps.fill[i0:]          # 视图，不再经 __post_init__ 复制
+    return sub

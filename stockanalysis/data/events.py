@@ -233,8 +233,13 @@ def fetch_notice(day: pd.Timestamp, use_cache: bool = True) -> pd.DataFrame:
     path = _path("notice", d)
     if use_cache and _valid(path, pd.Timestamp(day)):
         return pd.read_parquet(path)
-    raw = _retry(ak.stock_notice_report, symbol="全部", date=d)
     cols = ["qlib_code", "date", "title", "kind"]
+    try:
+        raw = ak.stock_notice_report(symbol="全部", date=d)
+    except KeyError:   # 节假日 akshare 内部取 "代码" 列报 KeyError：当作无公告
+        return _save(pd.DataFrame(columns=cols), path)
+    except Exception:  # noqa: BLE001 - 其余网络异常走重试
+        raw = _retry(ak.stock_notice_report, symbol="全部", date=d)
     if raw is None or not len(raw) or "代码" not in raw.columns:   # 节假日返回无列空表
         return _save(pd.DataFrame(columns=cols), path)
     df = pd.DataFrame({"qlib_code": _codes(raw["代码"]), "date": pd.to_datetime(raw["公告日期"], errors="coerce"),

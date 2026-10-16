@@ -21,11 +21,13 @@ import numpy as np
 import pandas as pd
 
 from ..config import load_pool
+from ..paths import REPORT_DIR
 
 FOLDS = (("F1", "2018-01-01", "2020-12-31", "2021-01-01", "2021-12-31"),
          ("F2", "2018-01-01", "2021-12-31", "2022-01-01", "2022-12-31"))
 SIGNAL_KEYS = ("buy", "buy_any", "avoid", "sell", "regime", "freq")   # 改变 PointSignal 的 points 子项
 STEP = 42   # 多起点间隔（交易日，约 2 个月）
+PARTIAL_DIR = REPORT_DIR / "logs"
 
 
 def expand(vary: list[str]) -> list[list[str]]:
@@ -83,7 +85,7 @@ def ensemble(reports: list[pd.DataFrame]) -> pd.DataFrame:
 def run_grid(name: str, vary: list[str], base_sets: list[str] | None = None, target: str = "ann",
              starts: int = 1, log=print) -> list[str]:
     from ..backtest.points_engine import run_points_backtest
-    from ..selection.points import WARMUP_DAYS, build_point_signal
+    from ..selection.points import WARMUP_DAYS, build_point_signal, slice_from
     from ..selection.signal import build_ctx
 
     base_sets = list(base_sets or [])
@@ -92,18 +94,21 @@ def run_grid(name: str, vary: list[str], base_sets: list[str] | None = None, tar
     start, end = first.backtest.get("start", "2018-01-01"), first.backtest["in_sample_end"]
     log(f"[{name}] {len(variants)} 个方案，研发区 {start} ~ {end}，加载行情 ...")
     ctx = build_ctx(first, start, end, WARMUP_DAYS)
-    ps_cache: dict[str, object] = {}
+    # 按信号键分组依次跑，内存里只留当前一组的 PointSignal（每个约数百 MB）
+    pools = [load_pool(name, sets=base_sets + sets) for sets in variants]
+    keys = [_signal_key(p) for p in pools]
+    order = sorted(range(len(variants)), key=lambda i: (keys.index(keys[i]), i))
+    partial = PARTIAL_DIR / f"points_grid_{name}.partial.csv"
+    partial.parent.mkdir(parents=True, exist_ok=True)
+    cur_key, ps = None, None
     rows = []
-    for k, sets in enumerate(variants, 1):
-        pool = load_pool(name, sets=base_sets + sets)
-        key = _signal_key(pool)
-        if key not in ps_cache:
-            ps_cache[key] = build_point_signal(pool, start, end, ctx)
-        from ..selection.points import slice_from
-
-        ps = ps_cache[key]
-        runs = [run_points_backtest(pool, str(ps.dates[k * STEP].date()), end, ps=slice_from(ps, k * STEP) if k else ps)
-                for k in range(starts) if k * STEP < len(ps.dates) - 250]
+    for k, i in enumerate(order, 1):
+        sets, pool = variants[i], pools[i]
+        if keys[i] != cur_key:
+            ps = None
+            ps, cur_key = build_point_signal(pool, start, end, ctx, with_extra=False), keys[i]
+        runs = [run_points_backtest(pool, str(ps.dates[j * STEP].date()), end, ps=slice_from(ps, j * STEP) if j else ps)
+                for j in range(starts) if j * STEP < len(ps.dates) - 250]
         res = {**runs[0], "report": ensemble([r["report"] for r in runs]) if len(runs) > 1 else runs[0]["report"]}
         for kk in ("trades", "win_rate", "payoff", "avg_days", "avg_pos"):
             vals = [r.get(kk) for r in runs if r.get(kk) is not None]
@@ -123,6 +128,7 @@ def run_grid(name: str, vary: list[str], base_sets: list[str] | None = None, tar
             row[f"{fold}选优"] = _objective(_seg(res, ts, te), target)
             row[f"{fold}检验"] = _seg(res, vs, ve).get("ann")
         rows.append(row)
+        pd.DataFrame(rows).to_csv(partial, index=False, encoding="utf-8-sig")   # 中途崩溃也留下已跑完的方案
         log(f"  [{k}/{len(variants)}] {row['方案']}: 年化 {row['年化']:.2%} 超额 {row['超额年化']:.2%} "
             f"回撤 {row['最大回撤']:.2%} 交易 {row['交易笔数']} 笔")
     table = pd.DataFrame(rows)
