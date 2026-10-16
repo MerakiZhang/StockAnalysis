@@ -6,6 +6,7 @@
 每个条件 × 阈值输出：
     日均触发    满足条件的日均只数
     h 日超额%   触发样本的前向收益 - 当日 base 均值，按样本平均（h = 5 / 20 / 60）
+    5日胜率 / 5日正年数   短线看这两列（5 日超额 > 0 的样本比例、逐年平均为正的年数）
     20日胜率    超额 > 0 的样本比例；20日盈亏比 = 正超额均值 / 负超额均值的绝对值
     20日t       按交易日先取均值再算 t 值（重叠持有期会高估，只作参考，以逐年为准）
     正年数      20 日超额逐年平均为正的年数 / 年数
@@ -34,7 +35,8 @@ def _metrics(flag: np.ndarray, ex: dict[int, np.ndarray], fwd20: np.ndarray, yea
     e = ex[20]
     f = flag & np.isfinite(e)
     if not f.any():
-        return {**row, "20日胜率": np.nan, "20日盈亏比": np.nan, "20日t": np.nan, "正年数": "", "20日绝对%": np.nan}
+        return {**row, "5日胜率": np.nan, "5日正年数": "", "20日胜率": np.nan, "20日盈亏比": np.nan, "20日t": np.nan,
+                "正年数": "", "20日绝对%": np.nan}
     vals = e[f]
     pos, neg = vals[vals > 0], vals[vals < 0]
     cnt = f.sum(axis=1)
@@ -42,6 +44,13 @@ def _metrics(flag: np.ndarray, ex: dict[int, np.ndarray], fwd20: np.ndarray, yea
     d = daily[np.isfinite(daily)]
     t = d.mean() / d.std(ddof=1) * np.sqrt(len(d)) if len(d) > 2 and d.std(ddof=1) > 0 else np.nan
     yearly = pd.Series(daily).groupby(years).mean().dropna()
+    e5 = ex[5]
+    f5 = flag & np.isfinite(e5)
+    c5 = f5.sum(axis=1)
+    daily5 = np.where(c5 > 0, np.where(f5, e5, 0).sum(axis=1) / np.maximum(c5, 1), np.nan)
+    yearly5 = pd.Series(daily5).groupby(years).mean().dropna()
+    row.update({"5日胜率": float((e5[f5] > 0).mean()) if f5.any() else np.nan,
+                "5日正年数": f"{int((yearly5 > 0).sum())}/{len(yearly5)}"})
     row.update({"20日胜率": float((vals > 0).mean()),
                 "20日盈亏比": float(pos.mean() / -neg.mean()) if len(pos) and len(neg) else np.nan,
                 "20日t": float(t), "正年数": f"{int((yearly > 0).sum())}/{len(yearly)}",

@@ -20,8 +20,11 @@ def _bench_returns(symbol: str, dates: pd.DatetimeIndex) -> pd.Series:
     from ..data.market import load_wide
 
     s, e = str((dates[0] - pd.Timedelta(days=10)).date()), str(dates[-1].date())
-    c = load_wide([symbol], s, e, ("close",))["close"][symbol].astype(float)
-    return c.pct_change(fill_method=None).reindex(dates).fillna(0.0)
+    c = load_wide([symbol], s, e, ("close",))["close"][symbol].astype(float).reindex(dates)
+    gaps = int(c.isna().sum())
+    if gaps:
+        print(f"[warn] 基准 {symbol} 在回测区间缺 {gaps} 个交易日，超额收益不可靠（换一个基准）", flush=True)
+    return c.pct_change(fill_method=None).fillna(0.0)
 
 
 def account(sim, ps, pool, bench: pd.Series | None = None) -> pd.DataFrame:

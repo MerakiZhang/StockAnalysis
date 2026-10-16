@@ -72,11 +72,12 @@ def market_temp(ctx: dict) -> pd.Series:
 def features(ctx: dict, benchmark: str) -> pd.DataFrame:
     """全部择时指标一张表。"""
     idx = index_close(ctx, benchmark)
+    ma60 = idx.rolling(60, min_periods=60).mean()
     up, down = limit_counts(ctx)
     return pd.DataFrame({
         "breadth20": breadth(ctx, 20), "breadth60": breadth(ctx, 60),
         "limit_up_n": up, "limit_down_n": down,
-        "index_above_ma60": (idx > idx.rolling(60, min_periods=60).mean()).astype(float),
+        "index_above_ma60": (idx > ma60).astype(float).where(idx.notna() & ma60.notna()),   # 缺数据为 NaN，不当作"在下方"
         "index_ret20": idx / idx.shift(20) - 1,
         "market_temp": market_temp(ctx),
     })

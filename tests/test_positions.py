@@ -145,3 +145,29 @@ def test_grid_expand_cartesian_and_pipe_separator():
     assert len(out) == 4
     assert out[0] == ["points.stop_loss=0.05", "points.buy={a: {}, b: {}}"]
     assert expand([]) == [[]]
+
+
+def test_sell_lines_in_raw_price_and_near_buy():
+    import pandas as pd
+
+    from stockanalysis.selection.points_daily import _sell_lines, near_buy
+    from stockanalysis.selection.positions import Position
+
+    n = 3
+    ps = make_ps(n_codes=n)
+    shape = ps.close.shape
+    ps.extra = {"factor": np.full(shape, 2.0),                          # 复权价 / 2 = 不复权价
+                "ma20": np.full(shape, 18.0),
+                "buy_parts": {"a": np.ones(shape, bool), "b": np.zeros(shape, bool)},
+                "buy_any_parts": {}, "avoid_parts": {}}
+    ps.extra["buy_parts"]["b"][:, 2] = True                             # 第 3 只两条都满足（已是买点）
+    ps.buy[:, 2] = True
+    sp = spec(stop_loss=0.1, trailing_stop=0.2, max_hold=10, sell={"below_ma": {"n": 20}}, buy={"a": {}, "b": {}})
+    p = Position("SH600000", pd.Timestamp("2021-01-04"), 20.0, 1.0, 25.0, 4, "买点")
+    lines = _sell_lines(p, 5, 0, ps, sp)
+    assert lines["止损价"] == pytest.approx(9.0)          # 20 × 0.9 / 2
+    assert lines["移动止盈价"] == pytest.approx(10.0)     # 25 × 0.8 / 2
+    assert lines["MA20"] == pytest.approx(9.0)
+    assert lines["剩余天数"] == 6
+    near = near_buy(ps, sp, 5, held={"SH600000"})
+    assert near["code"].tolist() == ["SH600001"] and near["缺少条件"].iloc[0] == "b"

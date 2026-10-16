@@ -167,7 +167,7 @@ stockanalysis/
 | 3 | `features/technical.py`（akquant.talib + qlib 表达式） | ☑ | a4a456d | akquant.talib 逐股计算、停牌缺口不传染；量能统一用成交额（qlib volume 口径不一致） |
 | 3 | `features/events.py`、`features/regime.py` | ☑ | a4a456d | |
 | 3 | `research/event_study.py` + `event-study` 命令；MCP 规则翻译清单 | ☑ | a4a456d | 翻译清单 = `features/conditions.py`（54 条，含阈值邻域）；2018H1 冒烟通过 |
-| 3 | 研发区事件研究报告 | ◐ | | 待两融 / 公告数据下载完成后全量运行 ⛔ 汇报、定候选规则 |
+| 3 | 研发区事件研究报告 | ⛔ | | 初步版完成（`data/reports/event_study_{long,short}_prelim.md`，两融 / 公告未下完）；等待用户确定方向 |
 | 4 | `selection/points.py` 买卖点规则注册表 | ☑ | | 规则直接引用条件库（CONDITIONS）+ yaml points 段，加载时校验条件名与参数 |
 | 4 | `selection/positions.py` 状态机 `step_positions()` | ☑ | | `decide()` + `simulate()`；`tests/test_positions.py` |
 | 4 | `multifactor` 优先分、`signal_points` 回测策略、schema / 配置 | ☑ | | 回测改为自记账（`backtest/points_engine.py`），见进度日志 |
@@ -194,4 +194,13 @@ stockanalysis/
     报告列与 qlib report 相同，沿用 `segment_metrics`。未建模：整手取整、成交量上限（单只约净值 1/10，流动性门槛以上影响小）。
   - 每日选股从 `points.live_start` 起用模拟器推演到当日，不读写上期状态文件；简报价格一律显示不复权价。
   - 冒烟发现初始短线规则"缩量回踩买入 + 跌破 MA20 卖出"互相矛盾（回踩股多在 MA20 下方，次日即卖），需在网格中解决。
+- 2026-10-16：初步事件研究（研发区 2018~2022，主板，两融 / 公告数据未下完）。要点：
+  - 本地中证全指 SH000985 缺 667 个交易日，不能做基准；长线池改用中证800（SH000906），短线池改用中证1000（SH000852）。
+  - 追涨类条件在 5 / 20 / 60 日全部为负且逐年稳定为负：放量突破、均线多头、MACD 零轴上金叉、BOLL 升穿上轨、近期持续上升、
+    放量、"主力流入"（CMF / 尾盘强势）、龙虎榜机构净买入、追高。A 股短线以反转为主，与旧研究一致。
+  - 反转类（急跌、超跌、跌穿布林下轨、RSI 低位金叉）平均超额为正，但逐年只有 1/5 年为正，不稳定。
+  - 稳定为正（4~5/5 年）：行业内便宜、高股息 / 分红连续、业绩预增、股东户数大降、小盘成长；
+    连续因子：股息率 / 分红连续性 / EP / 现金流质量 IC 5/5 年为正，波动率 / 近 20 日涨停次数 / 近 20 日涨幅 5/5 年为负。
+  - 格雷厄姆 / 绝对低估值在 2018~2022 略负（价值陷阱），"行业内便宜"为正。
+  - 站上均线（MA60 / MA120）做买点条件为负；择时指标与后续收益无单调关系（宽度极低时反而反弹）。
 

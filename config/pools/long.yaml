@@ -4,7 +4,7 @@ name: long
 enabled: false
 status: observe
 universe: all
-benchmark: SH000985        # 中证全指
+benchmark: SH000906        # 中证800（本地中证全指 SH000985 缺 667 个交易日，不可用）
 strategy:
   name: signal_points
 scorer:                    # 优先分：满足买点的股票多于空位时先买谁、以及 rank_exit
