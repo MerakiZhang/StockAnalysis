@@ -131,3 +131,46 @@ GitHub release ──sync──> cn_data（qlib 行情）
 | 训练签名包含整个 model 段 | 改 lgbm 参数导致 linear 模型找不到 | 签名只含公共参数 + 本模型参数 |
 | GitHub 下载中途断流 | 数据包不完整、sha256 校验失败 | 断点续传 + 重试，未完成部分保留到下次 |
 
+
+## 规则池（买卖点）架构（2026-10 重构，见 REFACTOR_PLAN.md）
+
+`long` / `short_reversal` / `short_breakout` 三个池：A 股全市场 → 烂股剔除 → 板块权限 → 买点入池 / 卖点出池，各 ≤ 10 只。
+
+```
+akshare / baostock / 长桥 CLI ──update-data──> data/fundamental/ data/events/ data/baostock/
+                                                      │
+features/  risk.py（烂股判定）  technical.py（指标，akquant.talib）  events.py（事件面板）  regime.py（择时）
+                 │                         │                                  │
+selection/filters.py（烂股 = exit 规则）   features/conditions.py（CONDITIONS：MCP 平台规则翻译 + 阈值邻域）
+                 │                         │
+                 └──> selection/points.py：build_point_signal()（买点 / 卖点 / 可成交 / 优先分 / 择时面板）
+                                           │
+                       selection/positions.py：simulate()（逐日：执行昨日计划 → 更新持仓 → 判断卖点 → 补位）
+                         │                                           │
+     select：points_daily.py 从 points.live_start 推演到 T          backtest：points_engine.py 记账（含成本）
+             → data/pool/{pool}/{T}.csv + 简报（卖出线、计划、体检）     research：event-study / points-grid
+```
+
+| 需求 | 操作 |
+|------|------|
+| 新增选股条件 | `features/conditions.py` 写 `@register(名, 来源, kind, grid)` 函数；先 `event-study --only 名` 检验 |
+| 改某池买卖点 | 池 yaml 的 `points` 段（buy / buy_any / avoid / sell + 止损类参数），加载时校验条件名与参数 |
+| 改板块权限 | `config/global.yaml` 的 `account_boards`（所有池的 boards 规则默认取它） |
+| 改烂股规则 | `config/pool_defaults.yaml` 的 filters（exit 规则，已持有的也会被卖出） |
+| 规则参数实验 | `points-grid --pool X --vary 键=值1,值2 --starts 6`（多起点合成，只看研发区） |
+
+防未来约定（规则池补充）：
+- 财报可见日 = 实际披露日（akshare 预约披露）次日，无记录时为披露截止日；较早报告期晚于较新报告期披露时不倒退。
+- 事件可见日：两融 T+1、龙虎榜 T 日盘后、股东户数 / 增减持 / 回购 / 业绩预告 / 公告为公告日次日；解禁日程事先公开。
+- 历史 ST 用 baostock `isST`；业绩报表里的股票简称是**当前**名称，不能用于历史 ST。
+- 行业为当前分类（东财行业），历史回测有轻微前视。
+- 成交：T 日收盘信号 → T+1 收盘（或 `deal_price: vwap` 均价）成交；止损类按收盘价判断，不是盘中触价。
+
+重构中发现的数据问题：
+
+| 问题 | 后果 | 处理 |
+|------|------|------|
+| 本地中证全指 SH000985 缺 667 个交易日 | 基准收益与择时指标失真 | 长线基准改中证800、短线改中证1000；记账发现基准缺数据会告警 |
+| 业绩报表 / 现金流报告期缓存永不更新 | 披露未完时抓到的半张表一直沿用 | `cache_valid()`：截止日 + 7 天后抓取才视为完整，否则每日重抓 |
+| baostock 原生接收循环在断开时空转 | 下载"卡住"不报错 | 替换 send_msg：超时 + 断开即报错 + 重新登录重试 |
+| 立案调查公告归在"其他"类 | 按公告类型筛不到 | 抓全部公告，按标题关键词识别 |
