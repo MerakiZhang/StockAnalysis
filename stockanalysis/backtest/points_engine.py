@@ -2,6 +2,7 @@
 
 记账口径：
     - 复权收盘价逐日计收益（含分红送转）；停牌日市值不变，复牌后按复牌价接续
+    - 成交价为 points.deal_price（收盘价或当日均价）；均价成交时买入当天计入"均价 → 收盘"的盈亏，卖出按均价折回
     - 每日先卖后买；买入金额 = 买入前净值 / max_positions（现金不足则用尽现金），不足 max_positions 时留现金
     - 成本：买 = 佣金 + 滑点；卖 = 佣金 + 印花税 + 滑点；佣金单笔不低于 min_cost
     - 不考虑整手（100 股）取整与成交量上限（单只仓位约为净值 / 10，对流动性门槛以上的股票影响很小）
@@ -58,6 +59,10 @@ def account(sim, ps, pool, bench: pd.Series | None = None) -> pd.DataFrame:
         todays = by_day.get(d, [])
         for t in (x for x in todays if x.side == "sell"):
             v = value.pop(t.code)
+            c = ps.close[i, col[t.code]]
+            if np.isfinite(c) and c > 0 and t.price != c:   # 均价成交：从收盘市值折回成交价
+                pnl += v * (t.price / c - 1)
+                v *= t.price / c
             last.pop(t.code, None)
             f = fee(v, sell=True)
             cash += v - f
@@ -69,7 +74,10 @@ def account(sim, ps, pool, bench: pd.Series | None = None) -> pd.DataFrame:
             amt = max(min(target, cash / (1 + rate)), 0.0)   # 现金用尽时记零仓位，保持与模拟器持仓一致
             f = fee(amt, sell=False) if amt > 0 else 0.0
             cash -= amt + f
-            value[t.code], last[t.code] = amt, t.price
+            c = ps.close[i, col[t.code]]
+            mark = amt * c / t.price if np.isfinite(c) and t.price > 0 else amt   # 成交价 → 当日收盘市值
+            pnl += mark - amt
+            value[t.code], last[t.code] = mark, (c if np.isfinite(c) else t.price)
             fees, traded = fees + f, traded + amt
         held = set(sim.holdings[i])
         if set(value) != held:   # 与模拟器持仓逐日一致（同一实现的自检）

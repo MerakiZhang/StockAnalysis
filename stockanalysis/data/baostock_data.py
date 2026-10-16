@@ -171,6 +171,23 @@ def update_daily(codes: list[str], end: str, start: str = DAILY_START, log=print
     return failed
 
 
+def _worker(args) -> list[str]:
+    codes, end, start, k = args
+    return update_daily(codes, end, start, log=lambda m: print(f"[w{k}] {m}", flush=True))
+
+
+def update_daily_parallel(codes: list[str], end: str, start: str = DAILY_START, workers: int = 4, log=print) -> list[str]:
+    """多进程下载（每个进程独立登录，按代码交错分片，互不写同一文件）。单只约 7 秒，4 进程约快 4 倍。"""
+    from multiprocessing import Pool
+
+    if workers <= 1:
+        return update_daily(codes, end, start, log)
+    parts = [(codes[k::workers], end, start, k) for k in range(workers)]
+    log(f"  {workers} 个进程，每个约 {len(parts[0][0])} 只")
+    with Pool(workers) as pool:
+        return [c for bad in pool.map(_worker, parts) for c in bad]
+
+
 def load_daily(field: str, codes: list[str], dates: pd.DatetimeIndex) -> pd.DataFrame:
     """逐日字段宽表（index=dates, columns=codes）；无缓存的股票整列为 NaN。"""
     cols = {}

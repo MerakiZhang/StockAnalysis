@@ -18,7 +18,7 @@ from pathlib import Path
 import yaml
 
 from .. import paths
-from .schema import (FILL_MODES, MANDATORY_FILTERS, POINTS_STRATEGY, REBALANCE_FREQS, STATUSES, TOP_LEVEL_KEYS,
+from .schema import (DEAL_PRICES, FILL_MODES, MANDATORY_FILTERS, POINTS_STRATEGY, REBALANCE_FREQS, STATUSES, TOP_LEVEL_KEYS,
                      PointsSpec, PoolSpec, RebalanceRule, Sizing, section)
 
 
@@ -82,6 +82,8 @@ def _build_points(name: str, raw: dict | None) -> PointsSpec:
             raise TypeError(f"池 {name}.points.{g} 须为 {{条件名: 参数}}")
     if p.freq not in REBALANCE_FREQS:
         raise ValueError(f"池 '{name}'：points.freq 须为 {REBALANCE_FREQS}")
+    if p.deal_price not in DEAL_PRICES:
+        raise ValueError(f"池 '{name}'：points.deal_price 须为 {DEAL_PRICES}")
     if p.fill not in FILL_MODES:
         raise ValueError(f"池 '{name}'：points.fill 须为 {FILL_MODES}")
     if not p.buy and not p.buy_any and p.fill == "strict":

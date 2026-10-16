@@ -25,6 +25,7 @@ TOP_LEVEL_KEYS = ("name", "enabled", "status", "universe", "benchmark", "sizing"
                   "data", "points")
 POINTS_STRATEGY = "signal_points"      # 买卖点池的策略名：走 selection/positions.py 模拟器，不走 qlib TopkDropout
 FILL_MODES = ("strict", "always")
+DEAL_PRICES = ("close", "vwap")
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class PointsSpec:
         regime         择时参数（features/regime.py state()）；不满足时不开新仓
         regime_exit    择时不满足时是否清仓
         live_start     实盘跟踪起始信号日：每日选股从这天起用同一模拟器推演到当日
+        deal_price     成交价：close（T+1 收盘）/ vwap（T+1 全天均价，更接近盘中分批成交）
     """
     max_positions: int = 10
     freq: str = "daily"
@@ -85,6 +87,7 @@ class PointsSpec:
     regime: dict = field(default_factory=dict)
     regime_exit: bool = False
     live_start: str | None = None
+    deal_price: str = "close"
 
     def groups(self) -> dict[str, dict]:
         return {"buy": self.buy, "buy_any": self.buy_any, "avoid": self.avoid, "sell": self.sell}

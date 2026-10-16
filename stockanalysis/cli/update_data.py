@@ -22,6 +22,7 @@ def add_arguments(p) -> None:
                    help=f"events 的数据集子集，默认全部: {','.join(DATASETS)}")
     p.add_argument("--start-year", type=int, default=2012, help="fundamental 起始报告期年份")
     p.add_argument("--events-start", default=EVENTS_START, help="events 起始日期")
+    p.add_argument("--workers", type=int, default=4, help="baostock 并行下载进程数")
 
 
 def run(args) -> None:
@@ -51,12 +52,12 @@ def run(args) -> None:
             if bad:
                 log(f"[events] {name} 失败 {len(bad)} 个单元（重跑即补）: {[str(b)[:10] for b in bad[:10]]}")
     if "baostock" in args.only:
-        from ..data.baostock_data import DAILY_START, fetch_industry, update_daily
+        from ..data.baostock_data import DAILY_START, fetch_industry, update_daily_parallel
         from ..data.universe import market_stocks
 
         codes = market_stocks(DAILY_START, end, exchanges=("SH", "SZ"))
         log(f"[baostock] 逐日数据 {len(codes)} 只，{DAILY_START} ~ {end}")
-        bad = update_daily(codes, end, log=log)
+        bad = update_daily_parallel(codes, end, workers=args.workers, log=log)
         log(f"[baostock] 失败 {len(bad)} 只（重跑即补）: {bad[:20]}")
         try:
             log(f"[baostock] 行业快照 {len(fetch_industry())} 只")

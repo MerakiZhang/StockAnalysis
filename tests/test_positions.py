@@ -189,3 +189,20 @@ def test_slice_from_and_ensemble():
                        "bench": 0.0}, index=DATES[1:3])
     ens = ensemble([r1, r2])
     assert ens["return"].tolist() == pytest.approx([0.01, 0.025, 0.0])   # 未开始的起点不参与平均
+
+
+def test_vwap_fill_entry_and_accounting():
+    buy = np.zeros((len(DATES), 1), bool)
+    buy[0, 0] = True
+    close = np.full((len(DATES), 1), 11.0)
+    fill = np.full((len(DATES), 1), 10.0)                # 均价 10，收盘 11
+    ps = make_ps(n_codes=1, buy=buy, close=close, fill=fill)
+    sp = spec(max_positions=1, max_hold=2)
+    sim = simulate(ps, sp)
+    assert sim.holdings[1]["SH600000"].entry_price == 10.0
+    pool = SimpleNamespace(account=1e6, points=sp,
+                           cost={"commission": 0.0, "stamp_tax": 0.0, "slippage": 0.0, "min_cost": 0.0})
+    rep = account(sim, ps, pool)
+    assert rep["nav"].iloc[1] == pytest.approx(1e6 * 1.1)   # 均价买入、收盘计价：当天 +10%
+    sell_day = [t.date for t in sim.trades if t.side == "sell"][0]
+    assert rep.loc[sell_day, "nav"] == pytest.approx(1e6)  # 均价卖出 10 → 回到成本

@@ -40,10 +40,15 @@ class PointSignal:
     signal_day: np.ndarray       # (交易日,)
     industry: list[str | None]
     extra: dict = field(default_factory=dict)   # 简报用：均线等卖出线、各买点条件面板
+    fill: np.ndarray | None = None   # 成交价（复权）；None = 收盘价。均价成交时为 vwap，缺失处回退收盘价
     colmap: dict[str, int] = field(init=False, repr=False)
 
     def __post_init__(self):
         self.colmap = {c: j for j, c in enumerate(self.codes)}
+        if self.fill is None:
+            self.fill = self.close
+        else:
+            self.fill = np.where(np.isfinite(self.fill), self.fill, self.close)
 
 
 def _cond(ctx: dict, name: str, params: dict | None) -> pd.DataFrame:
@@ -116,6 +121,7 @@ def build_point_signal(pool, start: str, end: str, ctx: dict | None = None) -> P
         can_buy=cut(traded & ~up).astype(bool), can_sell=cut(traded & ~down).astype(bool),
         regime_ok=reg.loc[s:e].to_numpy(dtype=bool), signal_day=signal_mask(idx, spec.freq),
         industry=[None if pd.isna(x) else str(x) for x in ind], extra=extra,
+        fill=cut(ctx["vwap"]).astype(np.float64) if spec.deal_price == "vwap" else None,
     )
 
 
@@ -133,4 +139,4 @@ def slice_from(ps: PointSignal, i0: int) -> PointSignal:
         sell_hits=cut(ps.sell_hits), exit_ok=ps.exit_ok[i0:], eligible=ps.eligible[i0:], score=ps.score[i0:],
         score_pct=ps.score_pct[i0:], atr=ps.atr[i0:], can_buy=ps.can_buy[i0:], can_sell=ps.can_sell[i0:],
         regime_ok=ps.regime_ok[i0:], signal_day=np.r_[True, ps.signal_day[i0 + 1:]],   # 起点当天建仓
-        industry=ps.industry, extra=cut(ps.extra))
+        industry=ps.industry, extra=cut(ps.extra), fill=ps.fill[i0:])

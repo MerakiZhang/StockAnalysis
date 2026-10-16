@@ -145,7 +145,7 @@ def simulate(ps, spec, initial: dict[str, Position] | None = None) -> SimResult:
         for code, reason in pend_sell:
             j = col[code]
             if code in positions and ps.can_sell[i, j]:
-                trades.append(Trade(d, prev_d, code, "sell", float(ps.close[i, j]), reason))
+                trades.append(Trade(d, prev_d, code, "sell", float(ps.fill[i, j]), reason))
                 del positions[code]
             elif code in positions:
                 unfilled.append((d, code, "sell"))
@@ -155,7 +155,7 @@ def simulate(ps, spec, initial: dict[str, Position] | None = None) -> SimResult:
             if len(positions) >= spec.max_positions or code in positions:
                 continue
             if ps.can_buy[i, j]:
-                px = float(ps.close[i, j])
+                px = float(ps.fill[i, j])
                 positions[code] = Position(code, d, px, float(ps.atr[i, j]), px, 0, reason)
                 trades.append(Trade(d, prev_d, code, "buy", px, reason))
                 bought.add(code)
