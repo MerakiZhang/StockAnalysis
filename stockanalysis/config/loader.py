@@ -74,8 +74,12 @@ def default_registries() -> dict:
     return {"filters": FILTERS, "scorers": SCORERS, "strategies": STRATEGIES}
 
 
-def _resolve_filters(name: str, filters: dict | None) -> dict[str, dict]:
+def _resolve_filters(name: str, filters: dict | None, account_boards: list[str] | None = None) -> dict[str, dict]:
     filters = dict(filters or {})
+    if isinstance(filters.get("boards"), dict) and "boards" not in filters["boards"]:
+        if not account_boards:
+            raise ValueError(f"池 '{name}'：boards 规则未指定板块，且 global.yaml 未设置 account_boards")
+        filters["boards"] = {**filters["boards"], "boards": list(account_boards)}
     for f in MANDATORY_FILTERS:
         if filters.get(f) is False:
             raise ValueError(f"池 '{name}'：过滤规则 {f} 不可关闭")
@@ -109,7 +113,7 @@ def build_pool_spec(name: str, cfg: dict, registries: dict | None = None, valida
     signal = dict(cfg.get("signal") or {})
     if set(signal) - {"score_ema"}:
         raise KeyError(f"池 {name}.signal 含未知项 {sorted(set(signal) - {'score_ema'})}")
-    cfg["filters"] = _resolve_filters(name, cfg.get("filters"))
+    cfg["filters"] = _resolve_filters(name, cfg.get("filters"), cfg.get("account_boards"))
 
     spec = PoolSpec(
         name=name,

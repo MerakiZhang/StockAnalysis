@@ -1,0 +1,11 @@
+# 短线进攻池：A 股全市场 → 烂股剔除（pool_defaults）→ 板块权限 → 短线买点入池 / 卖点出池，上限 10 只。
+# 阶段 4 之前为占位（enabled: false，打分器为冒烟用 momentum），规则见 REFACTOR_PLAN.md 第四节。
+name: short
+enabled: false
+status: observe
+universe: all
+benchmark: SH000985        # 中证全指
+scorer:
+  name: momentum
+filters:
+  min_amount: {amount: 1.0e+8, window: 20}   # entry：近 20 日日均成交额 ≥ 1 亿

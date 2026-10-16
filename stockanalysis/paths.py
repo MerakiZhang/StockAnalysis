@@ -8,6 +8,8 @@
     data/mlruns/                qlib Recorder（不入库）
     data/reports/               研究报告（不入库）
     data/fundamental/           akshare 基本面缓存（不入库）
+    data/events/                akshare 事件缓存：两融 / 龙虎榜 / 股东户数 / 解禁 / 增减持 / 回购 / 公告（不入库）
+    data/baostock/              baostock 逐日估值 / 换手 / ST / 停牌、行业（不入库）
 qlib 行情数据目录见 data/market.py（默认 ~/.qlib/qlib_data/cn_data，可用 QLIB_DATA 覆盖）。
 """
 from __future__ import annotations
@@ -27,3 +29,5 @@ MODEL_DIR = DATA_DIR / "models"
 MLRUNS_DIR = DATA_DIR / "mlruns"
 REPORT_DIR = DATA_DIR / "reports"
 FUND_DIR = DATA_DIR / "fundamental"
+EVENTS_DIR = DATA_DIR / "events"
+BAOSTOCK_DIR = DATA_DIR / "baostock"

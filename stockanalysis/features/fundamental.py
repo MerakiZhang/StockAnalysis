@@ -3,7 +3,7 @@
 作为 ML 特征经 StaticDataLoader 并入 Alpha158（不写入 cn_data），方向不需处理（模型自学），
 但统一为"有经济含义的比率"，便于截面标准化。
 
-防未来函数：报告期数据从 available_date（披露截止日）起可见；分红从预案公告日起可见。
+防未来函数：报告期数据从 available_date（实际披露日次日，缺失时为披露截止日）起可见；分红从预案公告日起可见。
 
 价格口径（重要）：qlib $close 是复权价，真实成交价 = $close / $factor。
 每股指标（EPS / 每股净资产 / 每股分红）按当时股本计，送转后与新股价不可比；
@@ -41,9 +41,16 @@ def _asof(wide: pd.DataFrame, dates: pd.Series, codes: pd.Series) -> np.ndarray:
 
 
 def _latest_visible(df: pd.DataFrame, field: str, cal: pd.DatetimeIndex, codes: list[str]) -> pd.DataFrame:
-    """报告期长表 -> 宽表：每个交易日取已披露的最新报告期值。"""
+    """报告期长表 -> 宽表：每个交易日取已披露的最新报告期值。
+
+    按实际披露日时，较早报告期可能晚于较新报告期披露（如一季报先于年报），
+    这类"倒退"的记录丢弃，保证每天取到的是已披露的最新报告期。
+    """
     df = df[df["qlib_code"].isin(codes)].dropna(subset=[field])
-    df = df.sort_values(["available_date", "period"]).drop_duplicates(["qlib_code", "available_date"], keep="last")
+    df = df.sort_values(["qlib_code", "available_date", "period"])
+    pnum = df["period"].astype(int)
+    df = df[pnum >= pnum.groupby(df["qlib_code"]).cummax()]
+    df = df.drop_duplicates(["qlib_code", "available_date"], keep="last")
     wide = df.pivot(index="available_date", columns="qlib_code", values=field).astype("float64")
     wide = wide.reindex(cal.union(wide.index)).sort_index().ffill().reindex(cal)
     return wide.reindex(columns=codes)

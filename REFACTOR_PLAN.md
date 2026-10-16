@@ -156,14 +156,14 @@ stockanalysis/
 | 阶段 | 任务 | 状态 | 提交 | 备注 |
 |------|------|------|------|------|
 | 0 | 计划入库、建分支 `refactor/rule-pools` | ☑ | | |
-| 1 | `data/baostock_data.py`：逐日 ST / 停牌 / 估值 / 换手（全市场，断点续传） | ☐ | | |
-| 1 | `data/baostock_data.py`：季频财报（pubDate）、业绩预告 | ☐ | | |
-| 1 | `data/events.py`：两融、龙虎榜、股东户数、解禁、增减持 / 回购、公告排雷 | ☐ | | |
-| 1 | `data/longbridge_cli.py`：市场温度历史、实盘体检封装 | ☐ | | |
-| 1 | `update-data` 命令接入新数据源；防未来单元测试 | ☐ | | |
-| 1 | 全量历史下载（后台） | ☐ | | |
-| 2 | 烂股剔除规则（exit）+ 解禁回避（entry）；`account.boards` 全局板块权限 | ☐ | | |
-| 2 | 研发区剔除效果统计（每年剔除只数、剔除组 vs 保留组后续收益） | ☐ | | ⛔ 汇报 |
+| 1 | `data/baostock_data.py`：逐日 ST / 停牌 / 估值 / 换手（全市场，断点续传） | ◐ | | 代码完成（替换了原生 recv 空转的 send_msg）；本机经 Clash Meta TUN（198.18.x fake-IP）时大响应会卡住，待网络直连后下载 |
+| 1 | 财报真实披露日、业绩预告 / 快报 | ☑ | | 改用 akshare：`stock_yysj_em` 实际披露日（2013+）、`stock_yjyg_em` / `stock_yjkb_em`（带公告日）；可见日 = 披露日次日；修复报告期缓存永不更新的问题 |
+| 1 | `data/events.py`：两融、龙虎榜、股东户数、解禁、增减持 / 回购、公告排雷 | ☑ | | 立案调查公告归在"其他"类，须抓全部公告按标题识别 |
+| 1 | `data/longbridge_cli.py`：市场温度历史、实盘体检封装 | ☑ | | 市场温度单次区间上限 3 年，按年缓存 |
+| 1 | `update-data` 命令接入新数据源；防未来单元测试 | ☑ | | `--only fundamental,events,baostock,market_temp`，`tests/test_data_layer.py` |
+| 1 | 全量历史下载（后台） | ◐ | | 日志 `data/reports/logs/`；两融约 6 小时、公告约 9 小时 |
+| 2 | 烂股剔除规则（exit）+ 解禁回避（entry）；`account_boards` 全局板块权限 | ☑ | | `features/risk.py` + 8 条过滤规则写入 pool_defaults；`tests/test_risk.py` |
+| 2 | 研发区剔除效果统计（每年剔除只数、剔除组 vs 保留组后续收益） | ◐ | | `quality` 命令已就绪（2018H1 冒烟通过）；全量结果待公告 / baostock 数据下载完 ⛔ 汇报 |
 | 3 | `features/technical.py`（akquant.talib + qlib 表达式） | ☐ | | |
 | 3 | `features/events.py`、`features/regime.py` | ☐ | | |
 | 3 | `research/event_study.py` + `event-study` 命令；MCP 规则翻译清单 | ☐ | | |
@@ -180,3 +180,10 @@ stockanalysis/
 ### 进度日志
 
 - 2026-10-16：计划确认，建分支，开始阶段 1。
+- 2026-10-16：阶段 1 数据层代码完成并开始后台下载；阶段 2 烂股规则落地。发现与调整：
+  - 业绩报表里的股票简称是**当前**名称（15 年里只有 1 只股票名称变过），不能用于历史 ST，历史 ST 必须用 baostock isST；
+    baostock 数据到位前，用"主板 ±5% 涨跌停"近似（只覆盖主板）。
+  - 财报真实披露日改用 akshare 预约披露接口（实际披露时间），不依赖 baostock 季频接口。
+  - 板块权限改为 global.yaml 的 `account_boards`（`account` 已是资金额，不复用）。
+  - 两个新池 `config/pools/long.yaml` / `short.yaml` 先以 `enabled: false` 占位，阶段 4 接入买卖点框架后启用。
+  - 2018H1 冒烟：ST / 小营收亏损 / 风险公告命中组后续超额为负、大跌率高；市值 < 30 亿的命中组反而跑赢，全量结果出来后重点复核。

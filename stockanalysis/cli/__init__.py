@@ -16,6 +16,7 @@ COMMANDS = {  # 命令名 -> 模块名
     "grid": "grid",
     "rounds": "rounds",
     "factors": "factors",
+    "quality": "quality",
     "check": "check",
     "sync": "sync",
     "update-data": "update_data",

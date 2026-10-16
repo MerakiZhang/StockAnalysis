@@ -5,6 +5,9 @@
 # 回测初始资金（元）。按实际资金设置：5 只等权时单票约 account/5。
 account: 1000000
 
+# 账户可交易板块：main=主板 cyb=创业板 kcb=科创板 bse=北交所。所有股池的 boards 规则默认用它，改一处全部生效。
+account_boards: [main]
+
 # ---------- 数据同步（stockanalysis/data/sync.py）----------
 data:
   github_repo: chenditc/investment_data

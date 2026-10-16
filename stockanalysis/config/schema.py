@@ -9,6 +9,7 @@
     scorer:    {name, ...参数}                          打分器（SCORERS 注册表）
     strategy:  {name, ...参数}                          回测策略（STRATEGIES 注册表）
     filters:   {规则名: 参数 | false}                   过滤规则（FILTERS 注册表），false = 关闭默认规则
+    account_boards: [main, ...]                         账户可交易板块（global.yaml）；boards 规则未写参数时用它
     backtest / cost / account / exchange / model / data   系统级设置（通常只在 global.yaml）
 """
 from __future__ import annotations
@@ -19,7 +20,8 @@ STATUSES = ("production", "observe")   # production = 可作实盘参考；obser
 REBALANCE_FREQS = ("daily", "weekly", "monthly")
 MANDATORY_FILTERS = ("in_universe",)   # 不可关闭
 TOP_LEVEL_KEYS = ("name", "enabled", "status", "universe", "benchmark", "sizing", "rebalance", "signal",
-                  "scorer", "strategy", "filters", "backtest", "cost", "account", "exchange", "model", "data")
+                  "scorer", "strategy", "filters", "backtest", "cost", "account", "account_boards", "exchange", "model",
+                  "data")
 
 
 @dataclass(frozen=True)

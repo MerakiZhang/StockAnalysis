@@ -119,5 +119,72 @@ def min_amount(ctx: dict, amount: float, window: int = 20) -> pd.DataFrame:
     return avg >= float(amount)
 
 
+# ------------------------------------------------------------------ 烂股剔除（exit：已持有的也强制调出）
+# 判定逻辑与数据口径见 features/risk.py；数据缺失视为通过（不因缺数据误杀）。
+@FILTERS.register("not_st", scope="exit")
+def not_st(ctx: dict) -> pd.DataFrame:
+    """非 ST / *ST（历史时点：baostock isST，缺数据时按涨跌停幅度近似）。"""
+    from ..features import risk
+
+    return ~risk.st(ctx)
+
+
+@FILTERS.register("min_price", scope="exit")
+def min_price(ctx: dict, price: float = 2.0) -> pd.DataFrame:
+    """不复权收盘价 ≥ price（面值退市风险）。"""
+    from ..features import risk
+
+    raw = risk.raw_close(ctx)
+    return ~(raw < float(price))
+
+
+@FILTERS.register("min_market_cap", scope="exit")
+def min_market_cap(ctx: dict, cap: float = 3e9) -> pd.DataFrame:
+    """总市值估算 ≥ cap（元）。"""
+    from ..features import risk
+
+    return ~(risk.market_cap(ctx) < float(cap))
+
+
+@FILTERS.register("no_consecutive_loss", scope="exit")
+def no_consecutive_loss(ctx: dict, years: int = 2) -> pd.DataFrame:
+    """最近 years 个已披露年报不全为亏损。"""
+    from ..features import risk
+
+    return ~risk.consecutive_loss(ctx, int(years))
+
+
+@FILTERS.register("positive_equity", scope="exit")
+def positive_equity(ctx: dict) -> pd.DataFrame:
+    """最近已披露每股净资产 ≥ 0。"""
+    from ..features import risk
+
+    return ~risk.negative_equity(ctx)
+
+
+@FILTERS.register("revenue_floor", scope="exit")
+def revenue_floor(ctx: dict, revenue: float = 3e8) -> pd.DataFrame:
+    """非"营收 < revenue 且亏损"（退市新规口径）。"""
+    from ..features import risk
+
+    return ~risk.small_revenue_loss(ctx, float(revenue))
+
+
+@FILTERS.register("no_risk_notice", scope="exit")
+def no_risk_notice(ctx: dict, days: int = 365) -> pd.DataFrame:
+    """近 days 天无立案调查 / 行政处罚 / 退市风险等公告。"""
+    from ..features import risk
+
+    return ~risk.risk_notice(ctx, int(days))
+
+
+@FILTERS.register("no_release_ahead", scope="entry")
+def no_release_ahead(ctx: dict, days: int = 20, ratio: float = 0.05) -> pd.DataFrame:
+    """未来约 days 个交易日内限售解禁合计不超过流通市值的 ratio。"""
+    from ..features import risk
+
+    return ~risk.release_ahead(ctx, int(days), float(ratio))
+
+
 for _n in FILTERS.names():
     assert scope_of(_n) in SCOPES, _n

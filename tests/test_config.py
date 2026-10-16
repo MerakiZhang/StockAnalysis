@@ -160,12 +160,22 @@ def test_parse_sets_nested_and_typed():
 
 
 # ---------------------------------------------------------------- 仓库内的真实配置
+INDEX_POOLS = ("hs300", "zz500", "zz1000")   # 旧 lgbm 指数池（重构完成后删除）
+RULE_POOLS = ("long", "short")               # 全市场规则池
+
+
 def test_repo_pools_load_and_validate():
     for name in list_pools():
         spec = load_pool(name)
-        assert spec.status == "observe" and spec.enabled
-        assert spec.rebalance.hold_thresh == 10 and spec.scorer["name"] == "lgbm"
+        assert spec.status == "observe"
         assert next(iter(spec.filters)) == "in_universe"
+        assert spec.filters["boards"] == {"boards": spec.raw["account_boards"]}   # 板块权限取全局设置
+    for name in INDEX_POOLS:
+        spec = load_pool(name)
+        assert spec.rebalance.hold_thresh == 10 and spec.scorer["name"] == "lgbm"
+    for name in RULE_POOLS:
+        spec = load_pool(name)
+        assert spec.universe == "all" and "not_st" in spec.filters and "min_amount" in spec.filters
     assert "min_amount" not in load_pool("hs300").filters
     assert "min_amount" in load_pool("zz500").filters
 
@@ -176,7 +186,9 @@ def test_repo_pool_yaml_only_has_overrides():
 
     for name in list_pools():
         raw = yaml.safe_load((POOLS_DIR / f"{name}.yaml").read_text(encoding="utf-8"))
-        assert not {"sizing", "rebalance", "scorer", "strategy"} & set(raw), name
+        assert not {"sizing", "rebalance", "strategy"} & set(raw), name
+        if name in INDEX_POOLS:
+            assert "scorer" not in raw, name
 
 
 def test_merged_config_keeps_model_section_for_signatures():

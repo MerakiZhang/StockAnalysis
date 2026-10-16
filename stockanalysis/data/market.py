@@ -76,7 +76,7 @@ def load_wide(
             for f in fields if f in df.columns}
 
 
-CTX_FIELDS = ("open", "high", "low", "close", "volume", "amount")
+CTX_FIELDS = ("open", "high", "low", "close", "volume", "amount", "vwap", "factor")
 
 
 def market_ctx(codes: list[str], start: str, end: str,

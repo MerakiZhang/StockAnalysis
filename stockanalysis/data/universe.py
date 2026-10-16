@@ -13,16 +13,28 @@ from .market import data_dir
 
 
 @lru_cache(maxsize=1)
-def listing_dates() -> dict[str, pd.Timestamp]:
-    """从 qlib instruments/all.txt 读取每只股票的起始日期（近似上市日）。"""
+def listing_spans() -> dict[str, tuple[pd.Timestamp, pd.Timestamp]]:
+    """qlib instruments/all.txt：每只证券的 (数据起始日, 数据截止日)；截止日早于最新交易日即已退市 / 转码。"""
     path = Path(data_dir()) / "instruments" / "all.txt"
-    out: dict[str, pd.Timestamp] = {}
+    out: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}
     with open(path, encoding="utf-8") as f:
         for line in f:
             parts = line.split()
-            if len(parts) >= 2:
-                out[parts[0]] = pd.Timestamp(parts[1])
+            if len(parts) >= 3:
+                out[parts[0]] = (pd.Timestamp(parts[1]), pd.Timestamp(parts[2]))
     return out
+
+
+def listing_dates() -> dict[str, pd.Timestamp]:
+    """每只股票的起始日期（近似上市日）。"""
+    return {c: s for c, (s, _) in listing_spans().items()}
+
+
+def market_stocks(start: str, end: str, exchanges: tuple[str, ...] = ("SH", "SZ", "BJ")) -> list[str]:
+    """[start, end] 内有交易数据的全部 A 股个股（含其后退市的，避免幸存者偏差）。"""
+    s, e = pd.Timestamp(start), pd.Timestamp(end)
+    return sorted(c for c, (a, b) in listing_spans().items()
+                  if is_stock(c) and c[:2] in exchanges and a <= e and b >= s)
 
 
 def board_of(code: str) -> str:

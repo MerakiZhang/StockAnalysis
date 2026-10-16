@@ -27,9 +27,19 @@ strategy:
 # exit = 持有规则（不通过即调出）；entry = 准入规则（只限制新买入）
 # 单个池关闭某条：在池 yaml 写 filters: {规则名: false}；in_universe 不可关闭
 filters:
-  in_universe: {}                    # exit：当日为指数成分（强制）
-  exclude_st: {}                     # exit：仅作用于最新一天（只有当前 ST 快照）
-  boards: {boards: [main]}           # entry：main / cyb / kcb / bse
-  min_list_days: {days: 180}         # entry：上市满 N 天
-  exclude_suspend: {days: 20}        # entry：近 N 日无停牌
-  exclude_limit: {}                  # entry：当日未涨停
+  in_universe: {}                    # exit：当日为指数成分 / 在市（强制）
+  # --- 烂股剔除（exit：两池共用，已持有的也强制调出；口径见 features/risk.py）---
+  exclude_st: {}                     # 当前 ST 快照（只作用于最新一天）
+  not_st: {}                         # 历史 ST（baostock isST，缺数据时按涨跌停幅度近似）
+  min_price: {price: 2.0}            # 不复权价 < 2 元（面值退市风险）
+  min_market_cap: {cap: 3.0e+9}      # 总市值 < 30 亿
+  no_consecutive_loss: {years: 2}    # 连续两年年报亏损
+  positive_equity: {}                # 净资产为负
+  revenue_floor: {revenue: 3.0e+8}   # 营收 < 3 亿且亏损
+  no_risk_notice: {days: 365}        # 近一年立案调查 / 行政处罚 / 退市风险公告
+  # --- 准入（entry：只限制新买入）---
+  boards: {}                         # 板块权限，默认取 global.yaml 的 account_boards
+  min_list_days: {days: 365}         # 上市满一年
+  exclude_suspend: {days: 20}        # 近 20 日无停牌
+  exclude_limit: {}                  # 当日未涨停
+  no_release_ahead: {days: 20, ratio: 0.05}   # 未来约 20 个交易日解禁 ≤ 流通市值 5%
