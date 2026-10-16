@@ -92,24 +92,30 @@ def exclude_suspend(ctx: dict, days: int = 20) -> pd.DataFrame:
     return ~(bad.rolling(int(days), min_periods=1).max() > 0)
 
 
+def limit_threshold(close: pd.DataFrame) -> pd.DataFrame:
+    """逐日涨跌停幅度：主板 10%、科创板 20%、创业板 2020-08-24 起 20%（之前 10%）、北交所 30%。
+
+    不区分 ST（5%）：历史 ST 判定见 features/risk.py。
+    """
+    boards = np.array([board_of(c) for c in close.columns])
+    row = np.select([boards == "kcb", boards == "bse"], [0.20, 0.30], 0.10).astype(np.float32)
+    thr = np.broadcast_to(row, close.shape).copy()
+    after = np.asarray(close.index >= CYB_20PCT_FROM)
+    thr[np.ix_(after, boards == "cyb")] = 0.20
+    return pd.DataFrame(thr, index=close.index, columns=close.columns)
+
+
+def limit_hits(close: pd.DataFrame, tol: float = 0.005) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(涨停, 跌停) 布尔面板：收盘涨跌幅达到幅度 - tol。"""
+    ret = close.pct_change(fill_method=None)
+    thr = limit_threshold(close)
+    return (ret >= thr - tol).fillna(False), (ret <= -(thr - tol)).fillna(False)
+
+
 @FILTERS.register("exclude_limit", scope="entry")
 def exclude_limit(ctx: dict, tol: float = 0.005) -> pd.DataFrame:
-    """当日涨停（收盘涨幅 ≥ 涨停幅度 - tol）不准入：次日开盘前无法确认能否买进。
-
-    幅度：主板 10%、科创板 20%、创业板 2020-08-24 起 20%（之前 10%）、北交所 30%。
-    """
-    close = _base(ctx)
-    ret = close.pct_change(fill_method=None)
-    thr = pd.DataFrame(0.10, index=close.index, columns=close.columns, dtype=np.float32)
-    for c in close.columns:
-        b = board_of(c)
-        if b == "kcb":
-            thr[c] = 0.20
-        elif b == "bse":
-            thr[c] = 0.30
-        elif b == "cyb":
-            thr[c] = np.where(close.index >= CYB_20PCT_FROM, 0.20, 0.10)
-    return ~(ret >= thr - tol).fillna(False)
+    """当日涨停（收盘涨幅 ≥ 涨停幅度 - tol）不准入：次日开盘前无法确认能否买进。"""
+    return ~limit_hits(_base(ctx), tol)[0]
 
 
 @FILTERS.register("min_amount", scope="entry")

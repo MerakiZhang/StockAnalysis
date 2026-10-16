@@ -17,6 +17,7 @@ COMMANDS = {  # 命令名 -> 模块名
     "rounds": "rounds",
     "factors": "factors",
     "quality": "quality",
+    "event-study": "event_study",
     "check": "check",
     "sync": "sync",
     "update-data": "update_data",

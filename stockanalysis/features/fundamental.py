@@ -152,3 +152,33 @@ def fundamental_panel(universe: str, start: str, end: str) -> pd.DataFrame:
     long = long.dropna(how="all").astype("float32")
     long.columns = pd.MultiIndex.from_product([["feature"], list(long.columns)])
     return long.sort_index()
+
+
+def panel(ctx: dict) -> dict[str, pd.DataFrame]:
+    """ctx 区间与股票上的基本面特征（FEATURES），首次调用时计算并缓存在 ctx["_fund"]。"""
+    if "_fund" not in ctx:
+        from ..data.market import load_wide
+
+        dates = pd.DatetimeIndex(ctx["dates"])
+        codes = list(ctx["codes"])
+        wide = load_wide(codes, f"{START_YEAR}-01-01", str(dates[-1].date()), ("close", "factor"))
+        close = wide["close"].reindex(columns=codes)
+        factor = wide["factor"].reindex(columns=codes)
+        feats = build_fundamental(codes, str(dates[0].date()), str(dates[-1].date()), close, factor)
+        ctx["_fund"] = {k: v.reindex(index=dates, columns=codes) for k, v in feats.items()}
+    return ctx["_fund"]
+
+
+def industry_map() -> pd.Series:
+    """qlib_code -> 行业（只用一套分类，避免混用口径）：业绩报表"所处行业"（东财行业）优先，
+    无缓存时用 baostock 证监会行业快照。两者都是**当前**分类，用于历史回测有轻微前视，报告中注明。"""
+    try:
+        yj = fd.load_yjbb_all(START_YEAR).sort_values("period").dropna(subset=["industry"])
+        em = yj.drop_duplicates("qlib_code", keep="last").set_index("qlib_code")["industry"]
+        if len(em):
+            return em
+    except FileNotFoundError:
+        pass
+    from ..data.baostock_data import load_industry
+
+    return load_industry()
