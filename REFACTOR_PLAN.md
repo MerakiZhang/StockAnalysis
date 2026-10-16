@@ -167,13 +167,14 @@ stockanalysis/
 | 3 | `features/technical.py`（akquant.talib + qlib 表达式） | ☑ | a4a456d | akquant.talib 逐股计算、停牌缺口不传染；量能统一用成交额（qlib volume 口径不一致） |
 | 3 | `features/events.py`、`features/regime.py` | ☑ | a4a456d | |
 | 3 | `research/event_study.py` + `event-study` 命令；MCP 规则翻译清单 | ☑ | a4a456d | 翻译清单 = `features/conditions.py`（54 条，含阈值邻域）；2018H1 冒烟通过 |
-| 3 | 研发区事件研究报告 | ⛔ | | 初步版完成（`data/reports/event_study_{long,short}_prelim.md`，两融 / 公告未下完）；等待用户确定方向 |
+| 3 | 研发区事件研究报告 | ◐ | 694d857 | 初步版完成并经用户定方向（见进度日志）；数据下完后重跑正式版 |
 | 4 | `selection/points.py` 买卖点规则注册表 | ☑ | | 规则直接引用条件库（CONDITIONS）+ yaml points 段，加载时校验条件名与参数 |
 | 4 | `selection/positions.py` 状态机 `step_positions()` | ☑ | | `decide()` + `simulate()`；`tests/test_positions.py` |
 | 4 | `multifactor` 优先分、`signal_points` 回测策略、schema / 配置 | ☑ | | 回测改为自记账（`backtest/points_engine.py`），见进度日志 |
 | 4 | 选股输出（买入原因、卖出线、接近买点、长桥体检栏）；一致性检查 | ☑ | | `selection/points_daily.py`；选股与回测是同一个 simulate()，一致性由构造保证 + 记账逐日自检 |
-| 5 | 中长线池：规则落地 + 研发区网格 + 滚动验证 | ☐ | | ⛔ 汇报、定参数 |
-| 6 | 短线池：规则落地 + 研发区网格 + 滚动验证（收盘 / vwap 两种成交口径） | ☐ | | ⛔ 汇报、定参数 |
+| 5 | 中长线池 `long`：规则落地 + 研发区网格 + 滚动验证 | ◐ | | 网格 v1（36 方案）运行中 ⛔ 汇报、定参数 |
+| 6 | 短线反转池 `short_reversal`：规则落地 + 研发区网格 + 滚动验证 | ☐ | | ⛔ 汇报、定参数 |
+| 6 | 短线突破池 `short_breakout`（对照）：规则落地 + 研发区网格 + 滚动验证 | ☐ | | ⛔ 汇报、定参数 |
 | 7 | 冻结 → 保留集评估一次 → 定状态 | ☐ | | |
 | 7 | 删旧三池与 lgbm 代码；更新 README / RULES / ARCHITECTURE；首期股池 + MCP 复核 | ☐ | | |
 
@@ -203,4 +204,10 @@ stockanalysis/
     连续因子：股息率 / 分红连续性 / EP / 现金流质量 IC 5/5 年为正，波动率 / 近 20 日涨停次数 / 近 20 日涨幅 5/5 年为负。
   - 格雷厄姆 / 绝对低估值在 2018~2022 略负（价值陷阱），"行业内便宜"为正。
   - 站上均线（MA60 / MA120）做买点条件为负；择时指标与后续收益无单调关系（宽度极低时反而反弹）。
+- 2026-10-16：用户决定（初步事件研究后）：
+  - 中长线持有池：质量价值 + 分红 + 预期（行业内便宜 + 分红连续为必要条件，业绩预增 / 股东户数大降 / 高股息 / 高 ROE 至少一项；
+    不用均线择时；卖点：行业内变贵 / 业绩预减 / 优先分跌出 / 大幅回撤）。
+  - 短线建两个池：`short_reversal`（反转 + 事件，推荐方案）与 `short_breakout`（追涨突破，按用户原设想保留作对照，
+    加强过滤：大盘在 60 日线上、不追高、质量门槛）。共三个池，各 10 只。
+  - `--set` 改为叶子值整体替换（字典不再与原字典合并），参数网格才能替换 / 清空条件组。
 

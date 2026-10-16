@@ -1,5 +1,7 @@
 # 中长线持有池：A 股全市场 → 烂股剔除（pool_defaults）→ 板块权限 → 中长线买点入池 / 卖点出池，上限 10 只。
-# 当前规则为初始候选（REFACTOR_PLAN.md 第四节），以研发区事件研究与网格结果定稿；定稿前 enabled: false。
+# 逻辑（用户 2026-10-16 选定）：质量价值 + 分红 + 预期。依据：初步事件研究（研发区 2018~2022）中
+#   行业内便宜 / 分红连续 / 高股息 / 业绩预增 / 股东户数大降 4~5 年为正；追涨、站上均线做买点为负。
+# 参数以研发区网格与滚动验证定稿；定稿前 enabled: false。
 name: long
 enabled: false
 status: observe
@@ -7,21 +9,31 @@ universe: all
 benchmark: SH000906        # 中证800（本地中证全指 SH000985 缺 667 个交易日，不可用）
 strategy:
   name: signal_points
-scorer:                    # 优先分：满足买点的股票多于空位时先买谁、以及 rank_exit
+scorer:                    # 优先分：IC 逐年稳定的因子（股息 / 分红连续 / EP / 现金流质量为正，波动 / 涨停次数 / 近期涨幅为负）
   name: multifactor
-  factors: {roe: 1.0, ep_ttm: 1.0, dividend_yield: 1.0, gross_margin: 0.5, mom_120_20: 1.0, vol20: -1.0}
+  factors: {dividend_yield: 1.0, dividend_continuity: 1.0, ep_ttm: 1.0, ocf_to_netprofit: 0.5,
+            vol20: -1.0, ret20: -0.5, limit_up_n20: -0.5}
 filters:
   min_amount: {amount: 5.0e+7, window: 20}   # entry：近 20 日日均成交额 ≥ 5000 万
 points:
   max_positions: 10
-  freq: weekly             # 新买入与条件卖出每周检查一次；止损类每日检查
+  freq: weekly             # 新买入与条件卖出每周检查；止损类每日检查
   buy:
-    quality_profit: {roe: 10}
-    above_ma: {n: 120}
+    industry_cheap: {pct: 0.7}       # 行业内估值便宜
+    dividend_steady: {times: 3}      # 近 5 年分红 ≥ 3 次（质量 / 股东回报）
+  buy_any:                           # 预期 / 股东回报加分项，至少满足一项
+    forecast_positive: {}
+    holders_concentrate: {chg: -10}
+    high_dividend: {dy: 0.04}
+    buffett: {roe: 15}
   avoid:
     chase_high: {rise: 0.2}
+    volume_surge: {amt: 2.0}
+    forecast_negative: {}
+    holder_reduce: {}
   sell:
-    below_ma: {n: 250}
-  trailing_stop: 0.20
-  rank_exit: 0.4
+    industry_expensive: {pct: 0.2}   # 行业内估值变贵或转亏
+    forecast_negative: {}
+  rank_exit: 0.3
+  trailing_stop: 0.25
   industry_max: 3

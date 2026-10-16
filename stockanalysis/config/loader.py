@@ -1,7 +1,7 @@
 """配置加载：发现股池、按层深合并、校验、计算配置 hash。
 
 合并顺序（后者覆盖前者，dict 递归合并）：
-    config/global.yaml → config/pool_defaults.yaml → config/pools/<name>.yaml → override（整段替换）→ sets（点路径）
+    config/global.yaml → config/pool_defaults.yaml → config/pools/<name>.yaml → override（整段替换）→ sets（点路径，叶子值整体替换）
 
 - 加股池 = 在 config/pools/ 加一个 yaml（只写与默认不同的项）；`enabled: false` 暂停而不删除。
 - 改所有池的规则 = 改 pool_defaults.yaml；只改某池 = 在该池 yaml 覆盖。
@@ -193,13 +193,31 @@ def merged_config(name: str, pools_dir: Path | None = None, global_path: Path | 
     cfg = deep_merge(load_global(global_path), read_yaml(defaults_path or paths.POOL_DEFAULTS))
     cfg = deep_merge(cfg, read_yaml(path))
     cfg = {**cfg, **(override or {})}
-    return deep_merge(cfg, parse_sets(sets))
+    return apply_sets(cfg, sets)
+
+
+def apply_sets(cfg: dict, sets: list[str] | None) -> dict:
+    """逐条应用 --set（key.path=value，值按 yaml 解析）：路径上的中间层保留，叶子值**整体替换**——
+    值为字典时不与原字典合并，这样 `points.buy_any={}` 能清空、`points.buy={a: {}}` 能换成只有 a。"""
+    out = copy.deepcopy(cfg)
+    for item in sets or []:
+        if "=" not in item:
+            raise ValueError(f"--set 需为 key.path=value 形式: {item!r}")
+        key_path, raw = item.split("=", 1)
+        keys = key_path.strip().split(".")
+        node = out
+        for k in keys[:-1]:
+            if not isinstance(node.get(k), dict):
+                node[k] = {}
+            node = node[k]
+        node[keys[-1]] = yaml.safe_load(raw)
+    return out
 
 
 def load_pool(name: str, pools_dir: Path | None = None, global_path: Path | None = None,
               defaults_path: Path | None = None, registries: dict | None = None, validate: bool = True,
               override: dict | None = None, sets: list[str] | None = None) -> PoolSpec:
     """override：按顶层键**整段替换**（如 {"scorer": {"name": "momentum"}}）；
-    sets：点路径**深合并**覆盖（如 ["rebalance.hold_thresh=5"]）。用于命令行覆盖与参数网格。"""
+    sets：点路径覆盖，叶子值整体替换（如 ["rebalance.hold_thresh=5"]，见 apply_sets）。用于命令行覆盖与参数网格。"""
     cfg = merged_config(name, pools_dir, global_path, defaults_path, override, sets)
     return build_pool_spec(name, cfg, registries, validate)

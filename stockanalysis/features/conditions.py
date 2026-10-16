@@ -117,19 +117,33 @@ def small_growth(ctx, np_yoy: float = 25, cap_lo: float = 20, cap_hi: float = 20
     return (cap >= cap_lo * YI) & (cap <= cap_hi * YI) & (_fund(ctx, "netprofit_yoy") >= np_yoy)
 
 
+def _industry_ep_rank(ctx) -> pd.DataFrame:
+    """EP（盈利收益率，亏损为 NaN）在同行业内的分位（越高越便宜）；行业不足 5 只不排名。缓存在 ctx。"""
+    cache = ctx.setdefault("_cond", {})
+    if "industry_ep_rank" not in cache:
+        from .fundamental import industry_map
+
+        ep = _fund(ctx, "ep_ttm").where(_fund(ctx, "ep_ttm") > 0)
+        ind = industry_map().reindex(ep.columns)
+        out = pd.DataFrame(np.nan, index=ep.index, columns=ep.columns)
+        for _, cols in ind.dropna().groupby(ind.dropna()).groups.items():
+            cols = list(cols)
+            if len(cols) >= 5:
+                out[cols] = ep[cols].rank(axis=1, pct=True)
+        cache["industry_ep_rank"] = out
+    return cache["industry_ep_rank"]
+
+
 @register("industry_cheap", "本项目·行业内估值", grid={"pct": [0.5, 0.7, 0.8]},
           desc="EP（盈利收益率）在同行业内的分位 ≥ pct（越高越便宜），亏损股不计")
 def industry_cheap(ctx, pct: float = 0.7):
-    from .fundamental import industry_map
+    return _industry_ep_rank(ctx) >= pct
 
-    ep = _fund(ctx, "ep_ttm").where(_fund(ctx, "ep_ttm") > 0)
-    ind = industry_map().reindex(ep.columns)
-    out = pd.DataFrame(np.nan, index=ep.index, columns=ep.columns)
-    for _, cols in ind.dropna().groupby(ind.dropna()).groups.items():
-        cols = list(cols)
-        if len(cols) >= 5:
-            out[cols] = ep[cols].rank(axis=1, pct=True)
-    return out >= pct
+
+@register("industry_expensive", "本项目·行业内估值变贵（卖点候选）", grid={"pct": [0.1, 0.2, 0.3]},
+          desc="EP 在同行业内的分位 ≤ pct（越低越贵），或转为亏损")
+def industry_expensive(ctx, pct: float = 0.2):
+    return (_industry_ep_rank(ctx) <= pct) | (_fund(ctx, "ep_ttm") <= 0)
 
 
 # ================================================================== 技术面（长桥筛选器 / 通达信）

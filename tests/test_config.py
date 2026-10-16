@@ -161,7 +161,7 @@ def test_parse_sets_nested_and_typed():
 
 # ---------------------------------------------------------------- 仓库内的真实配置
 INDEX_POOLS = ("hs300", "zz500", "zz1000")   # 旧 lgbm 指数池（重构完成后删除）
-RULE_POOLS = ("long", "short")               # 全市场规则池
+RULE_POOLS = ("long", "short_reversal", "short_breakout")               # 全市场规则池
 
 
 def test_repo_pools_load_and_validate():
@@ -195,3 +195,14 @@ def test_repo_pool_yaml_only_has_overrides():
 def test_merged_config_keeps_model_section_for_signatures():
     cfg = merged_config("hs300")
     assert cfg["model"]["lgbm"]["num_boost_round"] == 200
+
+
+def test_apply_sets_replaces_leaf_dicts():
+    from stockanalysis.config.loader import apply_sets
+
+    cfg = {"points": {"buy": {"a": {}, "b": {"x": 1}}, "stop_loss": 0.05}, "model": {"lgbm": {"lr": 0.1, "n": 5}}}
+    out = apply_sets(cfg, ["points.buy={a: {}}", "points.buy_any={}", "model.lgbm.lr=0.05"])
+    assert out["points"]["buy"] == {"a": {}}           # 字典整体替换，不合并
+    assert out["points"]["buy_any"] == {} and out["points"]["stop_loss"] == 0.05
+    assert out["model"]["lgbm"] == {"lr": 0.05, "n": 5}   # 中间层保留
+    assert cfg["points"]["buy"] == {"a": {}, "b": {"x": 1}}   # 不改原对象
