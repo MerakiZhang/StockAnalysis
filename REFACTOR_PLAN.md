@@ -1,0 +1,182 @@
+# 计划：A 股全市场 → 剔除烂股 → 板块权限 → 短线进攻池 / 中长线持有池（各 10 只，买点入池、卖点出池）
+
+## Context
+
+现在三个指数池用 LightGBM 只按量价排名，选出来的股票基本面差（沪深300 这期 5 只里 4 只净利润下滑），2023+ 扣成本后也没有超额。
+
+用户的决定：
+- 退役模型打分，改为规则选股。
+- 范围从三个指数改为 **A 股全市场**。
+- 建两个股池：**短线进攻**、**中长线持有**，各 10 只，两个都要能赚钱。
+- 每只股票有明确的**买入点**（满足才入池）和**卖出点**（触发就出池）。
+
+## 一、本机环境：每个库在项目里怎么用（均已实测）
+
+| 工具 | 版本 | 在项目里的角色 | 怎么用 |
+|---|---|---|---|
+| **qlib** | 0.9.7 | 数据底座 + 计算 + 回测 | cn_data 日线（OHLCV / 成交额 / vwap / 复权因子、全市场 all 股票表、交易日历）；表达式引擎算因子（Alpha158 的 158 个 + 自定义表达式）；回测引擎（成本、涨跌停、成交量上限）沿用现有 `backtest/engine.py` |
+| **baostock** | 0.9.40 | 历史"烂股"判定 + 估值 + 真实公告日 | `query_history_k_data_plus`：2006+ 逐日 isST / tradestatus / peTTM / pbMRQ / psTTM / 换手率；`query_profit_data` 等季频财报带 **pubDate**；`query_forecast_report` 业绩预告。新建 `data/baostock_data.py` 逐股下载到 parquet，断点续传 |
+| **akshare** | 1.19.1 | 已有基本面缓存 + 事件数据 | 现有 `data/fundamental.py`（业绩报表 / 现金流 / 分红）；新增两融（按日）、龙虎榜、股东户数（带公告日）、限售解禁、高管增减持、回购、公告类型（排雷）、业绩快报 |
+| **akquant** | 0.3.66 | 技术指标函数库 | `akquant.talib`：MACD / STOCH（KDJ）/ BBANDS / RSI / ATR / MFI / OBV / ADX / SAR，用 numpy 数组调用（已实测），逐股算出宽表，不用自己实现指标。它自带的事件驱动回测不做主回测（保持选股与回测同口径），最多作为交叉核对 |
+| **lightgbm** | 4.7.0 | 退役 | 新池不用；旧三池停用后与 lgbm 代码一起删除（另起提交） |
+| **长桥 CLI** | 本机已登录 | 程序可调用：择时数据 + 实盘体检 | `longbridge market-temp CN --history`：2018+ 逐日市场温度 / 估值 / 情绪，可回测，作为择时候选。每日选股后，`subprocess` 调 `capital`（资金流）、`institution-rating`、`news` / `filing`（`--format json`），把入池股的资金流、评级、近期公告写进简报"体检"栏 |
+| **MCP（长桥 / 通达信 / 同花顺）** | 仅对话中 | 规则来源 + 人工复核 | 程序调用不了，没有可回测的历史。用途：① 提供选股规则和阈值（长桥预设策略、通达信 / 同花顺常用条件）；② 我在对话里对股池做深度复核（新闻、公告、研报） |
+
+## 二、qlib 因子和 MCP 选股规则：结合用
+
+- MCP 规则的来源是平台的预设策略（格雷厄姆、高质量盈利、CANSLIM、高股息、MACD 零轴上金叉、KDJ 低位金叉、放量突破、主力流入等）。它们只能查"今天谁符合"，没法回测，直接照用就不知道历史上是否赚钱。实测长桥这些预设策略近 3 个月多数为负。
+- 做法：
+  1. 把每条 MCP 规则翻译成本地条件，用 qlib / baostock / akshare 的历史数据计算。
+  2. 和 qlib 的因子（Alpha158、表达式）一起，在研发区 2018~2022 做**条件事件研究**：触发后 5 / 20 / 60 日的超额、胜率、盈亏比、逐年稳定性、阈值邻域平稳性。
+  3. 只保留稳定有效的条件组成买点 / 卖点。
+- 一句话：**规则思路取自 MCP，计算和验证用 qlib，最后用 MCP 和长桥 CLI 做实盘复核。**
+
+## 三、选股流程（每个交易日收盘后，数据最新交易日 T）
+
+```
+A 股全市场（qlib all，当日在市）
+  │ ① 剔除烂股（两池共用，exit 规则：已持有的也强制卖出）
+  │ ② 账户板块权限（global.yaml account.boards: [main] 或加 cyb/kcb/bse，准入规则）
+  │ ③ 各池流动性门槛（短线：日均成交额 ≥ 1 亿；中长线：≥ 5000 万）
+  ├──► 短线进攻池：短线买点规则 → 按优先分排队 → 上限 10 只
+  └──► 中长线持有池：中长线买点规则 → 按优先分排队 → 上限 10 只
+  每日：先检查持仓的卖出点 → 卖出 → 空位从当日满足买点的候选中按优先分补入
+```
+
+**① 烂股剔除清单**（全部可按历史时点判定，研发区核对剔除比例和效果）：
+- ST / *ST / 退市整理（baostock 历史 isST，修掉现在"只有当前快照"的近似）。
+- 上市不满 1 年。
+- 近 20 日停牌。
+- 股价 < 2 元（面值退市风险）。
+- 总市值 < 30 亿（市值退市风险、操纵风险）。
+- 扣非 / 归母净利润连续两年为负，或净资产为负。
+- 营收 < 3 亿且亏损（退市新规口径）。
+- 近 1 年有立案调查、监管警示或风险提示公告（akshare 公告类型）。
+- 未来 20 日有大比例解禁（> 流通股 5%）：只限制买入。
+
+**② 板块权限**：从池级配置移到 `config/global.yaml` 的 `account.boards`，两池共用；改一处，两池同时生效。
+
+**两池关系**：资金独立、各自回测；默认允许同一只股票同时在两个池里（逻辑不同），可配置为互斥。
+
+**不足 10 只**：保持买点纪律，空位留现金；`fill: always` 时用优先分最高的候选补满（研发区对比两种做法）。
+
+## 四、两个池的规则（初始候选，以事件研究结果定稿）
+
+**中长线持有池**（持有数周到数月）
+- 买点（同时满足）：
+  - 质量：ROE ≥ 8~12%，经营现金流 / 净利润 ≥ 0.5，净利润同比 > -20%。
+  - 估值：行业内 PE / PB 排名不在最贵 30%（行业取 baostock 证监会分类）。
+  - 至少一项加分：股息连续、业绩预增、股东户数下降。
+  - 趋势：站上 MA120 且收盘 / MA20 < 1.10（不追高）。
+- 优先分：估值 + 质量 + 成长 + 低波动 + 中期动量，截面排名等权合成。
+- 卖点（任一触发）：
+  - 新财报质量门槛不通过。
+  - 估值进入行业最贵 10%。
+  - 跌破 MA250。
+  - 从持有期最高点回撤 20%。
+  - 减持或立案事件。
+- 约束：单一行业 ≤ 3 只。
+
+**短线进攻池**（持有数天到两周）
+- 买点：研发区对比几类规则，选优或合用。
+  - A 强势缩量回踩：站上 MA60，近 5 日回调 3~12%，缩量，K 线收盘位置转强。旧研究里反转 / 缩量方向有效。
+  - B 放量突破：20 日新高，成交额 ≥ 1.5 倍均量，CMF > 0，近 5 日涨幅 < 20%。
+  - C 指标共振：MACD 零轴上金叉 + KDJ 低位金叉 / RSI 金叉（akquant.talib）。
+  - 加分：龙虎榜机构净买入、融资买入放大。
+- 优先分：资金面近似指标（CMF / MFI / OBV 斜率 / 收盘相对均价 / 量比）+ 信号强度。
+- 卖点（任一触发）：
+  - 止损 -5% 或 2×ATR。
+  - 从最高点回撤 8%。
+  - 跌破 MA10。
+  - 持有满 10 个交易日。
+- 择时：全市场宽度低、指数在 MA60 下或长桥市场温度过低时，停止开新仓。
+
+成交：T 日收盘出信号，T+1 收盘成交；短线另用 T+1 vwap 对照，按两者中较差的验收。止损在次日收盘成交，不是盘中触价，简报和 RULES 里写明。
+
+## 五、实现结构（复用现有分层：注册表 + yaml 声明 + 选股与回测共用纯函数）
+
+```
+config/global.yaml          + account.boards；+ quality_floor（烂股清单参数）
+config/pools/short.yaml     universe: all，max_positions: 10，points.buy / points.sell / path 规则
+config/pools/long.yaml      同上
+config/pools/hs300|zz500|zz1000.yaml → enabled: false
+stockanalysis/
+  data/baostock_data.py     新：逐日 ST / 停牌 / 估值 / 换手，季频财报 pubDate，业绩预告
+  data/events.py            新：两融、龙虎榜、股东户数、解禁、增减持 / 回购、公告排雷（akshare 缓存）
+  data/longbridge_cli.py    新：调用长桥 CLI（市场温度历史、实盘体检），失败只告警不中断
+  features/technical.py     新：akquant.talib 逐股指标 + qlib 表达式 → 宽表
+  features/events.py        新：事件 → 逐日面板（严格按公告日可见）
+  features/regime.py        新：市场宽度、涨跌停家数、指数趋势、市场温度 → 择时状态
+  selection/filters.py      + 烂股规则（exit）、解禁回避（entry）；boards 改读 account.boards
+  selection/points.py       新：买点 / 卖点规则注册表（面板化，yaml 声明）
+  selection/positions.py    新：纯函数状态机 step_positions()（止损 / 移动止盈 / 最长持有 / 排队补位 / 行业上限 / 择时），选股与回测共用
+  models/scorers.py         + multifactor（优先分：截面排名等权合成）
+  backtest/strategies.py    + signal_points（调用 step_positions）
+  selection/store.py        CSV / 简报：买入原因、买入价、当前卖出线（止损价 / 止盈价 / 均线价 / 剩余天数）、卖出原因、接近买点名单、长桥体检栏
+  research/event_study.py   新：条件事件研究
+  research/points_grid.py   新：规则参数网格 + 研发区滚动验证（2018~20→21，2018~21→22）
+  cli/                      update-data 加 baostock / events；新增 event-study、points-grid
+```
+
+## 六、分阶段执行（每阶段单独提交，⛔ 处汇报后再继续）
+
+0. **计划入库与进度跟踪**：本计划写入项目根目录 `REFACTOR_PLAN.md`，末尾加"进度跟踪"表（阶段 / 任务 / 状态 ☐◐☑ / 提交 / 备注），每完成一项就更新并随该阶段一起提交。在 main 上新建分支 `refactor/rule-pools` 执行。
+1. **数据层**：baostock、akshare 事件数据、长桥 CLI 封装。全市场全历史首次下载约数小时，后台运行。防未来单元测试。
+2. **烂股剔除 + 板块权限**：规则落地；研发区统计每年剔除只数，以及剔除组与保留组的后续收益差。⛔ 汇报剔除效果。
+3. **指标与事件研究**：technical / events / regime；把 MCP 规则翻译后与 qlib 因子一起做事件研究。⛔ 汇报哪些规则稳定有效，定两池候选规则。
+4. **买卖点框架**：points / positions / signal_points / 选股输出 / 选股与回测一致性检查，端到端跑通。
+5. **中长线池**、6. **短线池**：研发区网格 + 滚动验证。⛔ 各自汇报、定参数。
+7. **冻结 → 保留集评估一次 → 定状态**：
+   - 扣成本后绝对年化 > 0 且超额 > 0，研发区和保留集都满足才标 production，否则 observe。
+   - 删旧三池和 lgbm 代码；更新 README / RULES / ARCHITECTURE；生成首期股池并用 MCP 复核。
+
+"两个都要赚钱"不能保证；不达标的池如实标 observe 继续跟踪。
+
+## 七、验证
+- 单元测试：
+  - 烂股规则按历史时点判定，例如 ST 不用当前快照。
+  - 事件面板在公告日前不可见。
+  - 指标与 akquant.talib 对数。
+  - 状态机：止损、移动止盈、最长持有、10 只上限、排队、行业上限、择时、涨跌停顺延。
+  - yaml 校验。
+- `C:/Users/merak/anaconda3/envs/qlib/python.exe -X utf8 -m pytest tests -q` 全部通过。
+- `-m stockanalysis check --pool short` / `--pool long`：选股与回测逐日持仓一致。
+- `-m stockanalysis event-study` / `points-grid`：研发区报告。
+- `-m stockanalysis select --pool short,long`：两池各 ≤ 10 只，简报含买卖点和长桥体检栏。
+
+## 八、复用
+`features/fundamental.build_fundamental`、`data/fundamental`（缓存 / 重试 / 代码规范化）、`research/metrics`（rank_ic / summarize_ic / topk_excess）、`registry.Registry`、`selection/filters.py` 现有规则、`backtest/engine.run_backtest`、`backtest/metrics.segment_metrics`、`research/consistency.py`、`data/sync.py`（qlib 数据自动更新）。
+
+---
+
+## 进度跟踪
+
+状态：☐ 未开始 · ◐ 进行中 · ☑ 完成 · ⛔ 等待用户决定。每完成一项即更新本表，并随该阶段提交。
+
+| 阶段 | 任务 | 状态 | 提交 | 备注 |
+|------|------|------|------|------|
+| 0 | 计划入库、建分支 `refactor/rule-pools` | ☑ | | |
+| 1 | `data/baostock_data.py`：逐日 ST / 停牌 / 估值 / 换手（全市场，断点续传） | ☐ | | |
+| 1 | `data/baostock_data.py`：季频财报（pubDate）、业绩预告 | ☐ | | |
+| 1 | `data/events.py`：两融、龙虎榜、股东户数、解禁、增减持 / 回购、公告排雷 | ☐ | | |
+| 1 | `data/longbridge_cli.py`：市场温度历史、实盘体检封装 | ☐ | | |
+| 1 | `update-data` 命令接入新数据源；防未来单元测试 | ☐ | | |
+| 1 | 全量历史下载（后台） | ☐ | | |
+| 2 | 烂股剔除规则（exit）+ 解禁回避（entry）；`account.boards` 全局板块权限 | ☐ | | |
+| 2 | 研发区剔除效果统计（每年剔除只数、剔除组 vs 保留组后续收益） | ☐ | | ⛔ 汇报 |
+| 3 | `features/technical.py`（akquant.talib + qlib 表达式） | ☐ | | |
+| 3 | `features/events.py`、`features/regime.py` | ☐ | | |
+| 3 | `research/event_study.py` + `event-study` 命令；MCP 规则翻译清单 | ☐ | | |
+| 3 | 研发区事件研究报告 | ☐ | | ⛔ 汇报、定候选规则 |
+| 4 | `selection/points.py` 买卖点规则注册表 | ☐ | | |
+| 4 | `selection/positions.py` 状态机 `step_positions()` | ☐ | | |
+| 4 | `multifactor` 优先分、`signal_points` 回测策略、schema / 配置 | ☐ | | |
+| 4 | 选股输出（买入原因、卖出线、接近买点、长桥体检栏）；一致性检查 | ☐ | | |
+| 5 | 中长线池：规则落地 + 研发区网格 + 滚动验证 | ☐ | | ⛔ 汇报、定参数 |
+| 6 | 短线池：规则落地 + 研发区网格 + 滚动验证（收盘 / vwap 两种成交口径） | ☐ | | ⛔ 汇报、定参数 |
+| 7 | 冻结 → 保留集评估一次 → 定状态 | ☐ | | |
+| 7 | 删旧三池与 lgbm 代码；更新 README / RULES / ARCHITECTURE；首期股池 + MCP 复核 | ☐ | | |
+
+### 进度日志
+
+- 2026-10-16：计划确认，建分支，开始阶段 1。
