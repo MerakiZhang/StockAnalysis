@@ -164,14 +164,14 @@ stockanalysis/
 | 1 | 全量历史下载（后台） | ◐ | | 日志 `data/reports/logs/`；两融约 6 小时、公告约 9 小时 |
 | 2 | 烂股剔除规则（exit）+ 解禁回避（entry）；`account_boards` 全局板块权限 | ☑ | | `features/risk.py` + 8 条过滤规则写入 pool_defaults；`tests/test_risk.py` |
 | 2 | 研发区剔除效果统计（每年剔除只数、剔除组 vs 保留组后续收益） | ◐ | | `quality` 命令已就绪（2018H1 冒烟通过）；全量结果待公告 / baostock 数据下载完 ⛔ 汇报 |
-| 3 | `features/technical.py`（akquant.talib + qlib 表达式） | ☐ | | |
-| 3 | `features/events.py`、`features/regime.py` | ☐ | | |
-| 3 | `research/event_study.py` + `event-study` 命令；MCP 规则翻译清单 | ☐ | | |
-| 3 | 研发区事件研究报告 | ☐ | | ⛔ 汇报、定候选规则 |
-| 4 | `selection/points.py` 买卖点规则注册表 | ☐ | | |
-| 4 | `selection/positions.py` 状态机 `step_positions()` | ☐ | | |
-| 4 | `multifactor` 优先分、`signal_points` 回测策略、schema / 配置 | ☐ | | |
-| 4 | 选股输出（买入原因、卖出线、接近买点、长桥体检栏）；一致性检查 | ☐ | | |
+| 3 | `features/technical.py`（akquant.talib + qlib 表达式） | ☑ | a4a456d | akquant.talib 逐股计算、停牌缺口不传染；量能统一用成交额（qlib volume 口径不一致） |
+| 3 | `features/events.py`、`features/regime.py` | ☑ | a4a456d | |
+| 3 | `research/event_study.py` + `event-study` 命令；MCP 规则翻译清单 | ☑ | a4a456d | 翻译清单 = `features/conditions.py`（54 条，含阈值邻域）；2018H1 冒烟通过 |
+| 3 | 研发区事件研究报告 | ◐ | | 待两融 / 公告数据下载完成后全量运行 ⛔ 汇报、定候选规则 |
+| 4 | `selection/points.py` 买卖点规则注册表 | ☑ | | 规则直接引用条件库（CONDITIONS）+ yaml points 段，加载时校验条件名与参数 |
+| 4 | `selection/positions.py` 状态机 `step_positions()` | ☑ | | `decide()` + `simulate()`；`tests/test_positions.py` |
+| 4 | `multifactor` 优先分、`signal_points` 回测策略、schema / 配置 | ☑ | | 回测改为自记账（`backtest/points_engine.py`），见进度日志 |
+| 4 | 选股输出（买入原因、卖出线、接近买点、长桥体检栏）；一致性检查 | ☑ | | `selection/points_daily.py`；选股与回测是同一个 simulate()，一致性由构造保证 + 记账逐日自检 |
 | 5 | 中长线池：规则落地 + 研发区网格 + 滚动验证 | ☐ | | ⛔ 汇报、定参数 |
 | 6 | 短线池：规则落地 + 研发区网格 + 滚动验证（收盘 / vwap 两种成交口径） | ☐ | | ⛔ 汇报、定参数 |
 | 7 | 冻结 → 保留集评估一次 → 定状态 | ☐ | | |
@@ -187,3 +187,11 @@ stockanalysis/
   - 板块权限改为 global.yaml 的 `account_boards`（`account` 已是资金额，不复用）。
   - 两个新池 `config/pools/long.yaml` / `short.yaml` 先以 `enabled: false` 占位，阶段 4 接入买卖点框架后启用。
   - 2018H1 冒烟：ST / 小营收亏损 / 风险公告命中组后续超额为负、大跌率高；市值 < 30 亿的命中组反而跑赢，全量结果出来后重点复核。
+- 2026-10-16：阶段 3 代码完成（全量研究待数据），阶段 4 买卖点框架完成。设计调整：
+  - **买卖点池的回测不走 qlib 策略**：改为纯函数模拟器 `selection/positions.simulate()` + 自记账 `backtest/points_engine.py`
+    （T+1 收盘成交、涨停买不进 / 跌停卖不出 / 停牌顺延、佣金 + 印花税 + 滑点、最低佣金）。原因：带止损 / 移动止盈的持仓状态
+    要和 qlib 的成交结果逐日对账，容易两边漂移；同一个模拟器同时用于每日选股和回测，结果按构造一致，记账时逐日自检持仓。
+    报告列与 qlib report 相同，沿用 `segment_metrics`。未建模：整手取整、成交量上限（单只约净值 1/10，流动性门槛以上影响小）。
+  - 每日选股从 `points.live_start` 起用模拟器推演到当日，不读写上期状态文件；简报价格一律显示不复权价。
+  - 冒烟发现初始短线规则"缩量回踩买入 + 跌破 MA20 卖出"互相矛盾（回踩股多在 MA20 下方，次日即卖），需在网格中解决。
+

@@ -99,7 +99,8 @@ def _titles(cmd: str, code: str, n: int, time_key: str) -> list[str]:
     out = []
     for r in rows[:n]:
         day = _to_cn_date(r[time_key]).strftime("%m-%d") if r.get(time_key) else ""
-        out.append(f"{day} {r.get('title', '')}".strip())
+        title = " ".join(str(r.get("title", "")).replace("|", "／").split())   # 竖线 / 换行会破坏 Markdown 表格
+        out.append(f"{day} {title}".strip())
     return out
 
 

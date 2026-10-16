@@ -176,6 +176,7 @@ def test_repo_pools_load_and_validate():
     for name in RULE_POOLS:
         spec = load_pool(name)
         assert spec.universe == "all" and "not_st" in spec.filters and "min_amount" in spec.filters
+        assert spec.points is not None and spec.points.max_positions == 10
     assert "min_amount" not in load_pool("hs300").filters
     assert "min_amount" in load_pool("zz500").filters
 
@@ -186,9 +187,9 @@ def test_repo_pool_yaml_only_has_overrides():
 
     for name in list_pools():
         raw = yaml.safe_load((POOLS_DIR / f"{name}.yaml").read_text(encoding="utf-8"))
-        assert not {"sizing", "rebalance", "strategy"} & set(raw), name
+        assert not {"sizing", "rebalance"} & set(raw), name
         if name in INDEX_POOLS:
-            assert "scorer" not in raw, name
+            assert not {"scorer", "strategy"} & set(raw), name
 
 
 def test_merged_config_keeps_model_section_for_signatures():

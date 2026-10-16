@@ -1,11 +1,27 @@
 # 中长线持有池：A 股全市场 → 烂股剔除（pool_defaults）→ 板块权限 → 中长线买点入池 / 卖点出池，上限 10 只。
-# 阶段 4 之前为占位（enabled: false，打分器为冒烟用 momentum），规则见 REFACTOR_PLAN.md 第四节。
+# 当前规则为初始候选（REFACTOR_PLAN.md 第四节），以研发区事件研究与网格结果定稿；定稿前 enabled: false。
 name: long
 enabled: false
 status: observe
 universe: all
 benchmark: SH000985        # 中证全指
-scorer:
-  name: momentum
+strategy:
+  name: signal_points
+scorer:                    # 优先分：满足买点的股票多于空位时先买谁、以及 rank_exit
+  name: multifactor
+  factors: {roe: 1.0, ep_ttm: 1.0, dividend_yield: 1.0, gross_margin: 0.5, mom_120_20: 1.0, vol20: -1.0}
 filters:
   min_amount: {amount: 5.0e+7, window: 20}   # entry：近 20 日日均成交额 ≥ 5000 万
+points:
+  max_positions: 10
+  freq: weekly             # 新买入与条件卖出每周检查一次；止损类每日检查
+  buy:
+    quality_profit: {roe: 10}
+    above_ma: {n: 120}
+  avoid:
+    chase_high: {rise: 0.2}
+  sell:
+    below_ma: {n: 250}
+  trailing_stop: 0.20
+  rank_exit: 0.4
+  industry_max: 3

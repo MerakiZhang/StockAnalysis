@@ -102,3 +102,9 @@ def entry_aware_topk_dropout(signal, rebalance):
         # 只按方向限制：涨停不能买、跌停不能卖（qlib 默认涨跌停时买卖都禁止，过于保守）
         forbid_all_trade_at_limit=False,
     )
+
+
+@STRATEGIES.register("signal_points")
+def signal_points(signal, rebalance):
+    """买卖点池：不经 qlib 策略，回测走 backtest/points_engine.py（与选股共用 selection/positions.py 模拟器）。"""
+    raise RuntimeError("signal_points 池请用 backtest.points_engine.run_points_backtest()")

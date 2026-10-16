@@ -47,6 +47,21 @@ def backtest_section(pool, res: dict, start: str, end: str, title: str | None = 
     return lines + [""]
 
 
+def points_section(pool, res: dict) -> list[str]:
+    """买卖点池补充：交易统计、卖出原因分布、规则摘要。"""
+    p = pool.points
+    rules = {k: v for k, v in vars(p).items() if k not in ("colmap",) and v not in (None, {}, False)}
+    lines = ["### 交易统计（扣往返成本）", "",
+             f"- 完整交易 {res.get('trades', 0)} 笔 · 胜率 {res.get('win_rate', float('nan')):.1%} · "
+             f"平均每笔 {res.get('avg_ret', float('nan')):.2%} · 盈亏比 {res.get('payoff', float('nan')):.2f} · "
+             f"平均持有 {res.get('avg_days', float('nan')):.1f} 个交易日",
+             f"- 平均持仓 {res.get('avg_pos', float('nan')):.1f} 只（上限 {p.max_positions}）· "
+             f"平均仓位 {res.get('exposure', float('nan')):.1%}",
+             "- 卖出原因：" + "、".join(f"{k} {v}" for k, v in res.get("sell_reasons", {}).items()), "",
+             "### 规则", "", "```", *(f"{k}: {v}" for k, v in rules.items()), "```", ""]
+    return lines
+
+
 def train_section(pool, manifests: dict, show_holdout: bool = False) -> list[str]:
     """训练报告：默认只列研发区（测试期起点 ≤ in_sample_end）的窗口与 IC。"""
     ins = pd.Timestamp(pool.backtest.get("in_sample_end", "2022-12-31"))

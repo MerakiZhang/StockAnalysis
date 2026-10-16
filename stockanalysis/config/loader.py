@@ -18,8 +18,8 @@ from pathlib import Path
 import yaml
 
 from .. import paths
-from .schema import (MANDATORY_FILTERS, REBALANCE_FREQS, STATUSES, TOP_LEVEL_KEYS, PoolSpec, RebalanceRule,
-                     Sizing, section)
+from .schema import (FILL_MODES, MANDATORY_FILTERS, POINTS_STRATEGY, REBALANCE_FREQS, STATUSES, TOP_LEVEL_KEYS,
+                     PointsSpec, PoolSpec, RebalanceRule, Sizing, section)
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -68,10 +68,25 @@ def config_hash(cfg: dict) -> str:
 def default_registries() -> dict:
     # 延迟导入：注册表模块依赖 qlib/pandas，仅在校验时加载
     from ..backtest.strategies import STRATEGIES
+    from ..features.conditions import CONDITIONS
     from ..models.scorers import SCORERS
     from ..selection.filters import FILTERS
 
-    return {"filters": FILTERS, "scorers": SCORERS, "strategies": STRATEGIES}
+    return {"filters": FILTERS, "scorers": SCORERS, "strategies": STRATEGIES, "conditions": CONDITIONS}
+
+
+def _build_points(name: str, raw: dict | None) -> PointsSpec:
+    p = section(PointsSpec, raw, f"池 {name}.points")
+    for g, conds in p.groups().items():
+        if not isinstance(conds, dict):
+            raise TypeError(f"池 {name}.points.{g} 须为 {{条件名: 参数}}")
+    if p.freq not in REBALANCE_FREQS:
+        raise ValueError(f"池 '{name}'：points.freq 须为 {REBALANCE_FREQS}")
+    if p.fill not in FILL_MODES:
+        raise ValueError(f"池 '{name}'：points.fill 须为 {FILL_MODES}")
+    if not p.buy and not p.buy_any and p.fill == "strict":
+        raise ValueError(f"池 '{name}'：points 未设置任何买点条件")
+    return p
 
 
 def _resolve_filters(name: str, filters: dict | None, account_boards: list[str] | None = None) -> dict[str, dict]:
@@ -114,6 +129,11 @@ def build_pool_spec(name: str, cfg: dict, registries: dict | None = None, valida
     if set(signal) - {"score_ema"}:
         raise KeyError(f"池 {name}.signal 含未知项 {sorted(set(signal) - {'score_ema'})}")
     cfg["filters"] = _resolve_filters(name, cfg.get("filters"), cfg.get("account_boards"))
+    points = None
+    if cfg["strategy"].get("name") == POINTS_STRATEGY:
+        points = _build_points(name, cfg.get("points"))
+    elif cfg.get("points"):
+        raise ValueError(f"池 '{name}'：只有 strategy.name={POINTS_STRATEGY} 的池才能写 points")
 
     spec = PoolSpec(
         name=name,
@@ -135,6 +155,7 @@ def build_pool_spec(name: str, cfg: dict, registries: dict | None = None, valida
         data=dict(cfg.get("data") or {}),
         raw=cfg,
         config_hash=config_hash(cfg),
+        points=points,
     )
     if validate:
         validate_spec(spec, registries or default_registries())
@@ -147,6 +168,10 @@ def validate_spec(spec: PoolSpec, registries: dict) -> None:
         registries["filters"].check_params(fname, params, f"{where}.filters.{fname}")
     registries["scorers"].check_params(spec.scorer["name"], spec.scorer_params, f"{where}.scorer")
     registries["strategies"].check_params(spec.strategy["name"], spec.strategy_params, f"{where}.strategy")
+    if spec.points is not None and "conditions" in registries:
+        for g, conds in spec.points.groups().items():
+            for cname, params in conds.items():
+                registries["conditions"].check_params(cname, params or {}, f"{where}.points.{g}.{cname}")
 
 
 def list_pools(pools_dir: Path | None = None, enabled_only: bool = False) -> list[str]:

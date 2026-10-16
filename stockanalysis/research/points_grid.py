@@ -1,0 +1,119 @@
+"""买卖点池参数网格 + 研发区滚动验证（walk-forward）。
+
+方案 = 若干点路径覆盖（与 --set 同语法）；--vary 给出每个键的候选值，取笛卡尔积。
+同一行情上下文只加载一次；买卖条件 / 择时 / 优先分 / 过滤不变的方案复用同一 PointSignal（只重跑模拟器）。
+
+滚动验证（只在研发区内）：
+    F1：2018~2020 选最优方案 → 看它在 2021 的表现
+    F2：2018~2021 选最优方案 → 看它在 2022 的表现
+选优目标默认为扣成本后的绝对年化收益（"两个池都要赚钱"）；也可选 excess（超额年化）或 calmar（年化 / 最大回撤）。
+"""
+from __future__ import annotations
+
+import itertools
+import json
+
+import numpy as np
+import pandas as pd
+
+from ..config import load_pool
+
+FOLDS = (("F1", "2018-01-01", "2020-12-31", "2021-01-01", "2021-12-31"),
+         ("F2", "2018-01-01", "2021-12-31", "2022-01-01", "2022-12-31"))
+SIGNAL_KEYS = ("buy", "buy_any", "avoid", "sell", "regime", "freq")   # 改变 PointSignal 的 points 子项
+
+
+def expand(vary: list[str]) -> list[list[str]]:
+    """["points.stop_loss=0.05,0.08", "points.max_hold=5,10"] -> 笛卡尔积的 --set 列表。
+
+    候选值含逗号（如 yaml 字典）时改用 | 分隔：points.buy={a: {}, b: {}}|{a: {}}
+    """
+    axes = []
+    for item in vary:
+        key, _, vals = item.partition("=")
+        sep = "|" if "|" in vals else ","
+        axes.append([f"{key.strip()}={v.strip()}" for v in vals.split(sep)])
+    return [list(c) for c in itertools.product(*axes)] if axes else [[]]
+
+
+def _abs_mdd(nav: pd.Series) -> float:
+    return float((nav / nav.cummax() - 1).min()) if len(nav) else np.nan
+
+
+def _seg(res: dict, s: str, e: str) -> dict:
+    from ..backtest.metrics import segment_metrics
+
+    m = segment_metrics(res["report"], s, e)
+    nav = res["report"]["nav"].loc[s:e]
+    return {**m, "abs_mdd": _abs_mdd(nav)}
+
+
+def _objective(m: dict, target: str) -> float:
+    if not m:
+        return -np.inf
+    if target == "excess":
+        return m["excess_ann"]
+    if target == "calmar":
+        return m["ann"] / abs(m["abs_mdd"]) if m.get("abs_mdd") else -np.inf
+    return m["ann"]
+
+
+def _signal_key(pool) -> str:
+    p = pool.points
+    blob = {k: getattr(p, k) for k in SIGNAL_KEYS}
+    return json.dumps({"points": blob, "scorer": pool.scorer, "filters": pool.filters}, sort_keys=True, default=str)
+
+
+def run_grid(name: str, vary: list[str], base_sets: list[str] | None = None, target: str = "ann",
+             log=print) -> list[str]:
+    from ..backtest.points_engine import run_points_backtest
+    from ..selection.points import WARMUP_DAYS, build_point_signal
+    from ..selection.signal import build_ctx
+
+    base_sets = list(base_sets or [])
+    variants = expand(vary)
+    first = load_pool(name, sets=base_sets)
+    start, end = first.backtest.get("start", "2018-01-01"), first.backtest["in_sample_end"]
+    log(f"[{name}] {len(variants)} 个方案，研发区 {start} ~ {end}，加载行情 ...")
+    ctx = build_ctx(first, start, end, WARMUP_DAYS)
+    ps_cache: dict[str, object] = {}
+    rows = []
+    for k, sets in enumerate(variants, 1):
+        pool = load_pool(name, sets=base_sets + sets)
+        key = _signal_key(pool)
+        if key not in ps_cache:
+            ps_cache[key] = build_point_signal(pool, start, end, ctx)
+        res = run_points_backtest(pool, start, end, ps=ps_cache[key])
+        row = {"方案": "; ".join(s.replace("points.", "") for s in sets) or "基准"}
+        full = _seg(res, start, end)
+        row.update({"年化": full.get("ann"), "超额年化": full.get("excess_ann"), "IR": full.get("ir"),
+                    "最大回撤": full.get("abs_mdd"), "超额回撤": full.get("mdd"), "交易笔数": res.get("trades", 0),
+                    "胜率": res.get("win_rate"), "盈亏比": res.get("payoff"), "平均持有": res.get("avg_days"),
+                    "平均持仓": res.get("avg_pos"), "年化成本": full.get("cost")})
+        for y in range(pd.Timestamp(start).year, pd.Timestamp(end).year + 1):
+            row[f"{y}年化"] = _seg(res, f"{y}-01-01", f"{y}-12-31").get("ann")
+        for fold, ts, te, vs, ve in FOLDS:
+            row[f"{fold}选优"] = _objective(_seg(res, ts, te), target)
+            row[f"{fold}检验"] = _seg(res, vs, ve).get("ann")
+        rows.append(row)
+        log(f"  [{k}/{len(variants)}] {row['方案']}: 年化 {row['年化']:.2%} 超额 {row['超额年化']:.2%} "
+            f"回撤 {row['最大回撤']:.2%} 交易 {row['交易笔数']} 笔")
+    table = pd.DataFrame(rows)
+
+    wf = []
+    for fold, ts, te, vs, ve in FOLDS:
+        best = table.loc[table[f"{fold}选优"].idxmax()]
+        wf.append({"折": fold, "选优区间": f"{ts[:4]}~{te[:4]}", "选中方案": best["方案"],
+                   "选优目标值": best[f"{fold}选优"], "检验区间": vs[:4], "检验年化": best[f"{fold}检验"],
+                   "检验区间全部方案中位数": table[f"{fold}检验"].median()})
+    pct_cols = [c for c in table.columns if c.endswith("年化") or c in ("最大回撤", "超额回撤", "胜率", "年化成本")
+                or c.endswith("检验")]
+    shown = table.copy()
+    for c in pct_cols:
+        shown[c] = shown[c].map(lambda v: f"{v:.1%}" if pd.notna(v) else "")
+    return [
+        f"## {name}（研发区 {start} ~ {end}，选优目标 {target}）", "",
+        f"- 基础覆盖：{'; '.join(base_sets) or '无'}", "",
+        "### 滚动验证", "", pd.DataFrame(wf).to_markdown(index=False, floatfmt=".3f"), "",
+        "### 全部方案", "", shown.sort_values("年化", ascending=False).to_markdown(index=False, floatfmt=".2f"), "",
+    ]
