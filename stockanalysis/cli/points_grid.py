@@ -14,6 +14,7 @@ def add_arguments(p) -> None:
                    help="点路径与候选值（逗号分隔），可重复；方案为各键取值的笛卡尔积")
     p.add_argument("--target", default="ann", choices=("ann", "excess", "calmar"),
                    help="滚动验证选优目标：绝对年化 / 超额年化 / 年化÷最大回撤")
+    p.add_argument("--starts", type=int, default=1, help="多起点个数（每隔约 2 个月一个建仓日），合成净值评估")
     add_set_arg(p)
     add_tag_arg(p)
     add_sync_args(p)
@@ -26,4 +27,4 @@ def run(args) -> None:
 
     for name in resolve_pools(args.pool):
         write_report(f"points_grid_{name}", header(f"买卖点参数网格：{name}")
-                     + run_grid(name, args.vary, args.set, args.target), tag=args.tag)
+                     + run_grid(name, args.vary, args.set, args.target, args.starts), tag=args.tag)

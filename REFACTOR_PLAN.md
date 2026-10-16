@@ -172,7 +172,7 @@ stockanalysis/
 | 4 | `selection/positions.py` 状态机 `step_positions()` | ☑ | | `decide()` + `simulate()`；`tests/test_positions.py` |
 | 4 | `multifactor` 优先分、`signal_points` 回测策略、schema / 配置 | ☑ | | 回测改为自记账（`backtest/points_engine.py`），见进度日志 |
 | 4 | 选股输出（买入原因、卖出线、接近买点、长桥体检栏）；一致性检查 | ☑ | | `selection/points_daily.py`；选股与回测是同一个 simulate()，一致性由构造保证 + 记账逐日自检 |
-| 5 | 中长线池 `long`：规则落地 + 研发区网格 + 滚动验证 | ◐ | | 网格 v1（36 方案）运行中 ⛔ 汇报、定参数 |
+| 5 | 中长线池 `long`：规则落地 + 研发区网格 + 滚动验证 | ◐ | | 网格 v1 / v2（36 方案，v2 为 6 个错开起点合成）完成；未定稿，见暂停点 ⛔ 汇报、定参数 |
 | 6 | 短线反转池 `short_reversal`：规则落地 + 研发区网格 + 滚动验证 | ☐ | | ⛔ 汇报、定参数 |
 | 6 | 短线突破池 `short_breakout`（对照）：规则落地 + 研发区网格 + 滚动验证 | ☐ | | ⛔ 汇报、定参数 |
 | 7 | 冻结 → 保留集评估一次 → 定状态 | ☐ | | |
@@ -210,4 +210,32 @@ stockanalysis/
   - 短线建两个池：`short_reversal`（反转 + 事件，推荐方案）与 `short_breakout`（追涨突破，按用户原设想保留作对照，
     加强过滤：大盘在 60 日线上、不追高、质量门槛）。共三个池，各 10 只。
   - `--set` 改为叶子值整体替换（字典不再与原字典合并），参数网格才能替换 / 清空条件组。
+- 2026-10-16：长线池网格（研发区 2018~2022，基准中证800，公告数据未下完）：
+  - v1（单起点）年化 -0.5%~14%，但 5 年只有 11~40 笔交易、平均持有 200~600 天，结果很依赖建仓时选中的 10 只；
+    同参数仅检查频率不同就差 4 个百分点，滚动验证 F2 选中方案 2022 年 -2.2%（全部方案中位数 +8.7%）。
+  - 因此网格加了多起点（`--starts`，每隔 42 个交易日一个建仓日，合成净值）。v2（6 起点）：最好的几组年化约 9.6%~10.4%、
+    超额约 9%~10%、最大回撤约 -23%~-27%、各起点年化 9%~17%（都为正）；共同特征：**不设或放宽移动止盈**（15% 移动止盈明显变差）、
+    rank_exit 0.3~0.5、月度或周度检查。滚动验证：F1 选中方案 2021 年 +10.8%（中位数 +22.8%），F2 选中方案 2022 年 +1.0%（中位数 +7.4%）
+    ——按 2018~2020 / 2018~2021 选出的"最优"在下一年都不如中位数，说明方案间差异多为噪声，不宜按网格冠军定稿。
+
+### 暂停点（2026-10-16 23:50）与恢复步骤
+
+当前状态：分支 `refactor/rule-pools`，测试 122 个全过；三个规则池均 `enabled: false`（未定稿，不会被 `select --pool all` 运行）。
+旧指数池 hs300 / zz500 / zz1000 仍为 enabled（尚未停用，阶段 7 再处理）。
+
+后台仍在运行（可断点续传，中断后重跑同一命令即可补齐）：
+- `update-data --only events --events gdhs,release,ggcg,repurchase,lhb,margin`（两融，预计约 02:00 完成），日志 `data/reports/logs/update_events.log`
+- `update-data --only events --events notice`（全部公告，预计约 04:30 完成），日志 `data/reports/logs/update_notice.log`
+
+恢复时按顺序：
+1. 确认两个下载完成；失败单元重跑：`python -X utf8 -m stockanalysis update-data --only events`（已完成的跳过）。
+2. baostock：本机经 Clash Meta TUN 时大响应卡住，需给 `baostock.com` 加 DIRECT 规则后运行
+   `python -X utf8 -m stockanalysis update-data --only baostock`（历史 ST / 换手率；未完成前历史 ST 用涨跌停近似）。
+3. 正式版体检与事件研究（数据齐全后）：`quality --pool long`、`event-study --pool long`、`event-study --pool short_reversal`，
+   对比 `*_prelim.md` 的结论是否变化。⛔ 向用户汇报烂股剔除效果（阶段 2 遗留）。
+4. 长线池定参数：用 `--starts 6` 网格，选"参数邻域内表现都不差"的方案而非单个冠军（倾向：不设移动止盈或 25%、rank_exit 0.3~0.5、
+   月度检查）；补测 buy 必要条件的阈值（industry_cheap 0.5/0.7/0.8、dividend_steady 2/3/4）和优先分因子组合。⛔ 汇报。
+5. 短线两池网格（`short_reversal`、`short_breakout`，各 `--starts 6`）：止损 / 止盈 / 最长持有 / 买点组合；
+   短线另用 T+1 均价成交做对照（尚未实现：points_engine 成交价目前固定为收盘价）。⛔ 汇报。
+6. 阶段 7：冻结 → 保留集只评估一次 → 定状态 → 停用旧三池 → 写 README / RULES / ARCHITECTURE → 设置 `live_start` 并启用。
 

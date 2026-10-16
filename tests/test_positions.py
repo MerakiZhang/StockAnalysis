@@ -171,3 +171,21 @@ def test_sell_lines_in_raw_price_and_near_buy():
     assert lines["剩余天数"] == 6
     near = near_buy(ps, sp, 5, held={"SH600000"})
     assert near["code"].tolist() == ["SH600001"] and near["缺少条件"].iloc[0] == "b"
+
+
+def test_slice_from_and_ensemble():
+    from stockanalysis.research.points_grid import ensemble
+    from stockanalysis.selection.points import slice_from
+
+    buy = np.ones((len(DATES), 3), bool)
+    ps = make_ps(buy=buy, signal_day=np.zeros(len(DATES), bool))
+    sub = slice_from(ps, 3)
+    assert len(sub.dates) == len(DATES) - 3 and sub.signal_day[0] and not sub.signal_day[1:].any()
+    sim = simulate(sub, spec())
+    assert len(sim.holdings[1]) == 2                     # 起点当天建仓、次日成交
+    r1 = pd.DataFrame({"return": [0.01, 0.02, 0.0], "cost": 0.0, "turnover": 0.0, "n_pos": 1, "cash": 0.0,
+                       "bench": 0.0}, index=DATES[:3])
+    r2 = pd.DataFrame({"return": [0.03, 0.0], "cost": 0.0, "turnover": 0.0, "n_pos": 1, "cash": 0.0,
+                       "bench": 0.0}, index=DATES[1:3])
+    ens = ensemble([r1, r2])
+    assert ens["return"].tolist() == pytest.approx([0.01, 0.025, 0.0])   # 未开始的起点不参与平均
