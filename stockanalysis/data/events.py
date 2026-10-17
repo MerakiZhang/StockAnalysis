@@ -252,9 +252,14 @@ def fetch_notice(day: pd.Timestamp, use_cache: bool = True) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------ 读取
+def unit_files(dataset: str) -> list:
+    """某数据集的全部单元缓存文件（按单元名排序）。"""
+    return sorted((AKSHARE_DIR / dataset).glob("*.parquet"))
+
+
 def load_units(dataset: str, start: str | None = None) -> pd.DataFrame:
     """合并某数据集全部单元缓存（start 按单元名粗筛：日 / 月 / 年 / 报告期均以年份开头）。"""
-    files = sorted((AKSHARE_DIR / dataset).glob("*.parquet"))
+    files = unit_files(dataset)
     if start:
         y = pd.Timestamp(start).year
         files = [f for f in files if int(f.stem[:4]) >= y]

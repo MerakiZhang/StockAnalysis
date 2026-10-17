@@ -190,15 +190,32 @@ def update_daily_parallel(codes: list[str], end: str, start: str = DAILY_START, 
         return [c for bad in pool.map(_worker, parts) for c in bad]
 
 
+def is_st_panel() -> pd.DataFrame:
+    """全部已缓存股票的 is_st 宽表（index=baostock 日期并集, columns=代码，float32，无记录为 NaN），存于 data/panel/。"""
+    from .panel import build_if_stale
+
+    files = sorted(DAILY_DIR.glob("*.parquet"))
+
+    def build() -> pd.DataFrame:
+        cols = {p.stem: pd.read_parquet(p, columns=["date", "is_st"]).set_index("date")["is_st"] for p in files}
+        return pd.DataFrame(cols).sort_index().astype("float32")
+
+    return build_if_stale("is_st", files, build)
+
+
 def load_daily(field: str, codes: list[str], dates: pd.DatetimeIndex) -> pd.DataFrame:
-    """逐日字段宽表（index=dates, columns=codes）；无缓存的股票整列为 NaN。"""
-    cols = {}
-    for c in codes:
-        p = daily_path(c)
-        if p.exists():
-            d = pd.read_parquet(p, columns=["date", field])
-            cols[c] = d.set_index("date")[field]
-    wide = pd.DataFrame(cols).reindex(index=pd.DatetimeIndex(dates))
+    """逐日字段宽表（index=dates, columns=codes）；无缓存的股票整列为 NaN。is_st 读 panel 派生表。"""
+    if field == "is_st":
+        wide = is_st_panel()
+    else:
+        cols = {}
+        for c in codes:
+            p = daily_path(c)
+            if p.exists():
+                d = pd.read_parquet(p, columns=["date", field])
+                cols[c] = d.set_index("date")[field]
+        wide = pd.DataFrame(cols)
+    wide = wide.reindex(index=pd.DatetimeIndex(dates))
     return wide.reindex(columns=list(codes)).astype("float32")
 
 

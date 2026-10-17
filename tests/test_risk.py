@@ -59,13 +59,17 @@ def test_market_cap_from_netprofit_over_eps(monkeypatch):
     assert cap.loc["2020-04-28"] == 1e10
 
 
-def test_risk_notice_window_and_exclusions(monkeypatch):
+def test_risk_notice_window_and_exclusions(monkeypatch, tmp_path):
     nt = pd.DataFrame({"qlib_code": ["SH600001", "SH600002"],
                        "date": [pd.Timestamp("2020-03-02"), pd.Timestamp("2020-03-02")],
                        "title": ["关于收到中国证监会立案调查通知书的公告", "关于撤销退市风险警示的公告"],
                        "kind": ["其他", "其他"]})
     import stockanalysis.data.events as E
-    monkeypatch.setattr(E, "load_units", lambda dataset, start=None: nt)
+    import stockanalysis.data.panel as P
+    (tmp_path / "notice").mkdir()
+    nt.to_parquet(tmp_path / "notice" / "20200302.parquet", index=False)
+    monkeypatch.setattr(E, "AKSHARE_DIR", tmp_path)
+    monkeypatch.setattr(P, "PANEL_DIR", tmp_path / "panel")
     ctx = make_ctx(["SH600001", "SH600002"])
     flag = R.risk_notice(ctx, 365)
     assert not flag.loc["2020-03-02", "SH600001"]          # 公告日当天（盘后发布）不可用
@@ -94,3 +98,42 @@ def test_account_boards_injected_into_boards_filter():
     assert out["boards"] == {"boards": ["main", "cyb"]}
     out = _resolve_filters("x", {"boards": {"boards": ["main"]}}, ["main", "cyb"])   # 池内显式指定优先
     assert out["boards"] == {"boards": ["main"]}
+
+
+def test_build_if_stale_rebuilds_on_source_or_extra_change(tmp_path, monkeypatch):
+    import os
+
+    import stockanalysis.data.panel as P
+    monkeypatch.setattr(P, "PANEL_DIR", tmp_path / "panel")
+    src = tmp_path / "a.parquet"
+    pd.DataFrame({"x": [1]}).to_parquet(src)
+    calls = []
+
+    def build():
+        calls.append(1)
+        return pd.read_parquet(src)
+
+    P.build_if_stale("t", [src], build, extra={"k": "1"})
+    P.build_if_stale("t", [src], build, extra={"k": "1"})
+    assert len(calls) == 1                                  # 未变化：直接读
+    P.build_if_stale("t", [src], build, extra={"k": "2"})
+    assert len(calls) == 2                                  # 额外键变化
+    pd.DataFrame({"x": [2]}).to_parquet(src)
+    st = os.stat(src)
+    os.utime(src, (st.st_atime, st.st_mtime + 10))
+    assert P.build_if_stale("t", [src], build, extra={"k": "2"})["x"].tolist() == [2]
+    assert len(calls) == 3                                  # 源文件变化
+
+
+def test_is_st_panel_matches_per_file_read(tmp_path, monkeypatch):
+    import stockanalysis.data.baostock_data as B
+    import stockanalysis.data.panel as P
+    monkeypatch.setattr(P, "PANEL_DIR", tmp_path / "panel")
+    monkeypatch.setattr(B, "DAILY_DIR", tmp_path)
+    pd.DataFrame({"date": pd.to_datetime(["2020-01-02", "2020-01-03"]), "is_st": [0, 1]}).to_parquet(tmp_path / "SH600001.parquet")
+    pd.DataFrame({"date": pd.to_datetime(["2020-01-03"]), "is_st": [1]}).to_parquet(tmp_path / "SH600002.parquet")
+    dates = pd.to_datetime(["2020-01-02", "2020-01-03", "2020-01-06"])
+    w = B.load_daily("is_st", ["SH600001", "SH600002", "SH600003"], dates)
+    assert w["SH600001"].tolist()[:2] == [0, 1] and np.isnan(w.loc["2020-01-06", "SH600001"])
+    assert np.isnan(w.loc["2020-01-02", "SH600002"]) and w.loc["2020-01-03", "SH600002"] == 1
+    assert w["SH600003"].isna().all() and w.dtypes.eq(np.float32).all()

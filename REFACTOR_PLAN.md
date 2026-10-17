@@ -417,7 +417,7 @@ data/
 | 7 | 删旧三池与 lgbm 代码；更新 README / RULES / ARCHITECTURE；首期股池 + MCP 复核 | ☑ | 65a0737 | ec49829 / 5d4a4d1 删除；文档改写；首期股池 2026-10-16 + 长桥体检复核；check 前缀一致性 0 差异 |
 | 8 | 8.1 计划入库、建分支 `refactor/data-and-rules` | ☑ | | |
 | 8 | 8.2 目录与命名（raw/akshare、raw/baostock、raw/longbridge、panel）+ 迁移；8.3 快照只留最新、两融不完整不落盘 | ☑ | | 迁移 12025 个文件，行数 / mtime 全部一致；删除 2 个旧快照 |
-| 8 | 8.4 panel 派生表（is_st、risk_notice） | ☐ | | |
+| 8 | 8.4 panel 派生表（is_st、risk_notice） | ☑ | | 与旧读取逐格相同；is_st 30 秒 → 0.4 秒，风险公告 8 秒 / 1.87GB → 0.1 秒 / 7MB（首次构建 30 秒 / 15 秒） |
 | 8 | 8.5 去掉 exclude_st；基准缺日 ffill；数据截止日（简报 + `update-data --status`） | ☐ | | |
 | 8 | 8.6 文档；核对选股 / 回测结果不变 | ☐ | | |
 | 9 | 9.0 跟踪段（live_log）+ 9.4 `track` 命令、停 short_breakout | ☐ | | |
