@@ -41,11 +41,14 @@ stockanalysis/
   data/      market.py   qlib 初始化、交易日历、OHLCV / vwap / 复权因子、行情上下文
              sync.py     GitHub release 版本比对 → 断点续传下载 → 校验 → 原子替换 cn_data
              universe.py     全市场在市区间、板块判定、上市日
-             fundamental.py  akshare 业绩报表 / 分红 / 现金流 / 实际披露日 / 业绩预告 / 快报（按报告期缓存）
+             fundamental.py  akshare 业绩报表 / 分红 / 现金流 / 实际披露日 / 业绩预告（按报告期缓存）
              events.py       akshare 两融 / 龙虎榜 / 股东户数 / 解禁 / 增减持 / 回购 / 全部公告
              baostock_data.py  逐日 ST / 停牌 / 估值 / 换手（多进程下载）+ 行业快照
              longbridge_cli.py 长桥 CLI：市场温度历史、实盘体检（资金流 / 评级 / 新闻 / 公告）
-             reference.py    股票名称、当前 ST 名单
+             reference.py    股票名称
+             cache.py        原始缓存约定：快照只留最新一份
+             panel.py        data/panel 派生表（源文件或关键词变化自动重建）
+             freshness.py    各数据源截止日 vs 信号日（简报"数据截止"、update-data --status）
   features/  labels.py   前向收益口径（唯一定义）
              fundamental.py  基本面逐日面板（按披露日可见）、行业映射
              risk.py     烂股判定（历史 ST、市值、连续亏损、风险公告、解禁等）
@@ -73,7 +76,7 @@ stockanalysis/
   cli/       common.py   公共参数（--pool / --set / --show-holdout / --tag / 数据同步）
              select backtest quality event_study points_grid check sync update_data
 tests/       与包结构对应的单元测试
-data/        pool/（入库）· reports/ fundamental/ events/ baostock/（不入库）
+data/        pool/（入库）· reports/ raw/{akshare,baostock,longbridge}/ panel/（不入库）
 ```
 
 依赖方向：`cli → research → backtest → selection → models → features → data → paths / registry / runtime`，下层不依赖上层。
@@ -84,7 +87,7 @@ data/        pool/（入库）· reports/ fundamental/ events/ baostock/（不�
 
 ```
 GitHub release ──sync──> cn_data（qlib 行情）
-akshare / baostock / 长桥 CLI ──update-data──> data/fundamental/ data/events/ data/baostock/
+akshare / baostock / 长桥 CLI ──update-data──> data/raw/ ──> data/panel/（is_st、风险公告）
                                                       │
 features/  risk.py（烂股判定）  technical.py（指标）  events.py（事件面板）  fundamental.py  regime.py（择时）
                  │                         │
@@ -109,7 +112,7 @@ selection/filters.py（exit / entry）   features/conditions.py（CONDITIONS） 
 - **财报**：可见日 = 实际披露日（akshare 预约披露）次日，无记录时为披露截止日（年报 / 一季报 4/30、半年报 8/31、三季报 10/31）；
   较早报告期晚于较新报告期披露时不倒退；分红从预案公告日起可见。
 - **事件**：两融 T+1、龙虎榜 T 日盘后、股东户数 / 增减持 / 回购 / 业绩预告 / 公告为公告日次日；解禁日程事先公开。
-- **ST**：历史用 baostock `isST`；业绩报表里的股票简称是**当前**名称，不能用于历史 ST。
+- **ST**：历史与当日都用 baostock `isST`（当日未到时沿用前一日，简报"数据截止"标出）；业绩报表里的股票简称是**当前**名称，不能用于历史 ST。
 - **行业**：当前分类（东财行业），历史回测有轻微前视。
 - **保留集**：回测、网格默认截止 `in_sample_end`（2022-12-31）；`--show-holdout` 仅用于参数冻结后的最终评估。
 

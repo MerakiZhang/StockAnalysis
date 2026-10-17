@@ -35,6 +35,7 @@ conda activate qlib   # 含 qlib 0.9.7 / akshare / baostock / akquant / pytest�
 # 1. 更新补充数据（断点续传；首次全量约数小时，之后每日增量）
 python -X utf8 -m stockanalysis update-data                # 基本面 / 事件 / baostock / 市场温度
 python -X utf8 -m stockanalysis update-data --only events  # 只更新事件（两融、龙虎榜、公告等）
+python -X utf8 -m stockanalysis update-data --status       # 只看各数据源截止日（滞后的标 ⚠），不下载
 
 # 2. 生成当期股池（启动时自动比对 GitHub 行情数据版本，落后则下载并原子替换）
 python -X utf8 -m stockanalysis select --pool all          # 或 --pool long
@@ -71,7 +72,9 @@ config/pools/<name>.yaml    单个股池：基准、优先分、买卖点（poin
 stockanalysis/              代码包：config / data / features / models / selection / backtest / research / cli
 tests/                      单元测试
 data/pool/<name>/           股池输出（入库，实盘跟踪记录）
-data/reports/ data/fundamental/ data/events/ data/baostock/   报告与数据缓存（不入库）
+data/reports/               研究报告（不入库）
+data/raw/{akshare,baostock,longbridge}/   原始数据缓存（不入库，可重新下载）
+data/panel/                 由 raw 生成的紧凑表（不入库，可随时重建）
 ```
 
 加股池、改买卖点、加选股条件等常见修改的具体做法见 `ARCHITECTURE.md` 开头的"怎么改"表。
