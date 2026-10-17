@@ -116,10 +116,11 @@ def build_fundamental(codes: list[str], start: str, end: str, close: pd.DataFram
     np_ttm = _latest_visible(_ttm(yj, "netprofit"), "netprofit_ttm", cal, codes)
     out["ocf_to_netprofit"] = ocf / np_ttm.where(np_ttm > 0)
 
-    frames = [pd.read_parquet(p) for p in sorted((fd.FUND_DIR / "fhps").glob("fhps_*.parquet"))
-              if int(p.stem.split("_")[1][:4]) >= START_YEAR]
-    if frames:
-        fh = pd.concat(frames, ignore_index=True)
+    try:
+        fh = fd._load_periods("fhps", START_YEAR)
+    except FileNotFoundError:
+        fh = None
+    if fh is not None:
         fh["dps"] = pd.to_numeric(fh["dps"], errors="coerce")
         fh = fh[fh["qlib_code"].isin(codes) & (fh["dps"] > 0) & fh["announce_date"].notna()].copy()
         fh = fh.drop_duplicates(["qlib_code", "period", "announce_date"])

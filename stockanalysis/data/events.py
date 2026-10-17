@@ -1,6 +1,6 @@
 """akshare 事件数据抓取与本地缓存：两融、龙虎榜、股东户数、限售解禁、股东增减持、回购、公告。
 
-缓存布局（data/events/<数据集>/<单元>.parquet），单元为日 / 月 / 年 / 报告期 / 快照：
+缓存布局（data/raw/akshare/<数据集>/<单元>.parquet），单元为日 / 月 / 年 / 报告期 / 快照（抓取日，只留最新一份）：
 
     margin/<yyyymmdd>      两融明细（沪 + 深，按交易日）       qlib_code, date, fin_balance, fin_buy
     lhb/<yyyymm>           龙虎榜明细（按月）                  qlib_code, date, net_buy, buy, sell, deal_amount, market_amount, reason
@@ -18,7 +18,7 @@
     限售解禁：日程在上市 / 定增时即已公开 → 按解禁日前视使用（只用于"未来 N 日将解禁"）
 
 缓存完整性：日 / 月 / 年单元结束 3 天后抓取的视为完整；之前抓取的超过 1 天即重抓。
-快照类每天至多抓一次。
+快照类每天至多抓一次。两融任一交易所当日为空（深交所次日才公布）时不落盘，记为失败单元，下次重抓。
 """
 from __future__ import annotations
 
@@ -26,7 +26,8 @@ import time
 
 import pandas as pd
 
-from ..paths import EVENTS_DIR
+from ..paths import AKSHARE_DIR
+from .cache import latest_snapshot, save_snapshot, snapshot_path
 from .fundamental import _retry, normalize_code, report_periods
 from .universe import is_stock
 
@@ -36,7 +37,7 @@ EVENTS_START = "2017-01-01"
 
 
 def _path(dataset: str, unit: str):
-    return EVENTS_DIR / dataset / f"{unit}.parquet"
+    return AKSHARE_DIR / dataset / f"{unit}.parquet"
 
 
 def _valid(path, unit_end: pd.Timestamp, now: pd.Timestamp | None = None) -> bool:
@@ -69,6 +70,10 @@ def _num(df: pd.DataFrame, cols) -> pd.DataFrame:
     return df
 
 
+class IncompleteError(RuntimeError):
+    """数据源当日数据尚未完整公布：不落盘，下次重抓。"""
+
+
 # ------------------------------------------------------------------ 两融（按交易日）
 def fetch_margin(day: pd.Timestamp, use_cache: bool = True) -> pd.DataFrame:
     import akshare as ak
@@ -79,6 +84,8 @@ def fetch_margin(day: pd.Timestamp, use_cache: bool = True) -> pd.DataFrame:
         return pd.read_parquet(path)
     sh = _retry(ak.stock_margin_detail_sse, date=d)
     sz = _retry(ak.stock_margin_detail_szse, date=d)
+    if not len(sh) or not len(sz):
+        raise IncompleteError(f"两融 {d} 不完整（沪 {len(sh)} 行 / 深 {len(sz)} 行，可能尚未公布）")
     parts = []
     if len(sh):
         parts.append(pd.DataFrame({"qlib_code": _codes(sh["标的证券代码"]),
@@ -175,17 +182,14 @@ def fetch_release(year: int, use_cache: bool = True) -> pd.DataFrame:
     return _save(_stocks_only(df), path)
 
 
-# ------------------------------------------------------------------ 快照类（全量历史，每天至多一次）
-def _snapshot_path(dataset: str) -> tuple:
-    today = pd.Timestamp.now().strftime("%Y%m%d")
-    return _path(dataset, today), sorted((EVENTS_DIR / dataset).glob("*.parquet"))
+# ------------------------------------------------------------------ 快照类（全量历史，每天至多一次，只留最新一份）
 
 
 def fetch_ggcg(use_cache: bool = True) -> pd.DataFrame:
     """股东增减持（全量历史，约 3~4 分钟）。"""
     import akshare as ak
 
-    path, _ = _snapshot_path("ggcg")
+    path = snapshot_path(AKSHARE_DIR / "ggcg")
     if use_cache and path.exists():
         return pd.read_parquet(path)
     raw = _retry(ak.stock_ggcg_em, symbol="全部")
@@ -196,14 +200,14 @@ def fetch_ggcg(use_cache: bool = True) -> pd.DataFrame:
                        "end": pd.to_datetime(raw["变动截止日"], errors="coerce"),
                        "announce_date": pd.to_datetime(raw["公告日"], errors="coerce")})
     df = _num(df, ["float_ratio", "total_ratio"])
-    return _save(_stocks_only(df), path)
+    return save_snapshot(_stocks_only(df), path.parent)
 
 
 def fetch_repurchase(use_cache: bool = True) -> pd.DataFrame:
     """股票回购（全量历史）。回购起始时间 = 方案首次公告日。"""
     import akshare as ak
 
-    path, _ = _snapshot_path("repurchase")
+    path = snapshot_path(AKSHARE_DIR / "repurchase")
     if use_cache and path.exists():
         return pd.read_parquet(path)
     raw = _retry(ak.stock_repurchase_em)
@@ -214,14 +218,14 @@ def fetch_repurchase(use_cache: bool = True) -> pd.DataFrame:
                        "progress": raw["实施进度"],
                        "announce_date": pd.to_datetime(raw["最新公告日期"], errors="coerce")})
     df = _num(df, ["amount_low", "amount_high", "ratio_low"])
-    return _save(_stocks_only(df), path)
+    return save_snapshot(_stocks_only(df), path.parent)
 
 
 def load_snapshot(dataset: str) -> pd.DataFrame:
-    files = sorted((EVENTS_DIR / dataset).glob("*.parquet"))
-    if not files:
+    path = latest_snapshot(AKSHARE_DIR / dataset)
+    if path is None:
         raise FileNotFoundError(f"无 {dataset} 缓存，请先运行 python -X utf8 -m stockanalysis update-data --only events")
-    return pd.read_parquet(files[-1])
+    return pd.read_parquet(path)
 
 
 # ------------------------------------------------------------------ 公告（按自然日）
@@ -250,7 +254,7 @@ def fetch_notice(day: pd.Timestamp, use_cache: bool = True) -> pd.DataFrame:
 # ------------------------------------------------------------------ 读取
 def load_units(dataset: str, start: str | None = None) -> pd.DataFrame:
     """合并某数据集全部单元缓存（start 按单元名粗筛：日 / 月 / 年 / 报告期均以年份开头）。"""
-    files = sorted((EVENTS_DIR / dataset).glob("*.parquet"))
+    files = sorted((AKSHARE_DIR / dataset).glob("*.parquet"))
     if start:
         y = pd.Timestamp(start).year
         files = [f for f in files if int(f.stem[:4]) >= y]
@@ -282,6 +286,9 @@ def update_events(datasets=DATASETS, start: str = EVENTS_START, end: str | None 
         for i, u in enumerate(units, 1):
             try:
                 fetch(u)
+            except IncompleteError as e:
+                bad.append(u)
+                log(f"  {name} {u} 不完整，下次重抓: {e}")
             except Exception as e:  # noqa: BLE001 - 接口异常类型不统一
                 bad.append(u)
                 log(f"  {name} {u} FAILED: {str(e)[:120]}")

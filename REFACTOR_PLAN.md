@@ -416,8 +416,7 @@ data/
 | 7 | 冻结 → 保留集评估一次 → 定状态 | ☑ | e550214 | long / short_reversal production，short_breakout observe（RULES.md 第 5 节） |
 | 7 | 删旧三池与 lgbm 代码；更新 README / RULES / ARCHITECTURE；首期股池 + MCP 复核 | ☑ | 65a0737 | ec49829 / 5d4a4d1 删除；文档改写；首期股池 2026-10-16 + 长桥体检复核；check 前缀一致性 0 差异 |
 | 8 | 8.1 计划入库、建分支 `refactor/data-and-rules` | ☑ | | |
-| 8 | 8.2 目录与命名（raw/akshare、raw/baostock、raw/longbridge、panel）+ 迁移 | ☐ | | |
-| 8 | 8.3 快照只留最新；两融不完整不落盘 | ☐ | | |
+| 8 | 8.2 目录与命名（raw/akshare、raw/baostock、raw/longbridge、panel）+ 迁移；8.3 快照只留最新、两融不完整不落盘 | ☑ | | 迁移 12025 个文件，行数 / mtime 全部一致；删除 2 个旧快照 |
 | 8 | 8.4 panel 派生表（is_st、risk_notice） | ☐ | | |
 | 8 | 8.5 去掉 exclude_st；基准缺日 ffill；数据截止日（简报 + `update-data --status`） | ☐ | | |
 | 8 | 8.6 文档；核对选股 / 回测结果不变 | ☐ | | |

@@ -36,7 +36,7 @@ def test_ep_continuous_through_split_and_visible_after_disclosure(monkeypatch):
     xj = yj.rename(columns={"netprofit": "ocf"})[["qlib_code", "period", "available_date", "ocf"]]
     monkeypatch.setattr(S.fd, "load_yjbb_all", lambda start_year=2012: yj)
     monkeypatch.setattr(S.fd, "load_xjll_all", lambda start_year=2012: xj)
-    monkeypatch.setattr(S.fd, "FUND_DIR", S.fd.FUND_DIR.parent / "__nonexistent__")
+    monkeypatch.setattr(S.fd, "AKSHARE_DIR", S.fd.AKSHARE_DIR.parent / "__nonexistent__")
     f = S.build_fundamental([code], "2020-01-01", "2021-12-31", close, factor)
     ep = f["ep_ttm"][code]
     assert np.isnan(ep.loc["2021-04-29"])                     # 2020 年报 4/30 才可见

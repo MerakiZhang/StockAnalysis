@@ -90,3 +90,25 @@ def test_market_stocks_includes_delisted_and_filters(monkeypatch):
     monkeypatch.setattr(U, "listing_spans", lambda: spans)
     assert U.market_stocks("2018-01-01", "2026-10-15") == ["BJ920001", "SH600000", "SH600087"]
     assert U.market_stocks("2018-01-01", "2026-10-15", exchanges=("SH", "SZ")) == ["SH600000", "SH600087"]
+
+
+def test_save_snapshot_keeps_only_latest(tmp_path):
+    from stockanalysis.data import cache as C
+
+    (tmp_path / "20200101.parquet").write_bytes(b"old")
+    df = C.save_snapshot(pd.DataFrame({"a": [1]}), tmp_path)
+    files = sorted(p.name for p in tmp_path.glob("*.parquet"))
+    assert files == [f"{C.today_tag()}.parquet"]
+    assert C.latest_snapshot(tmp_path).name == files[0] and len(df) == 1
+
+
+def test_margin_one_exchange_empty_not_saved(tmp_path, monkeypatch):
+    import akshare as ak
+
+    monkeypatch.setattr(E, "AKSHARE_DIR", tmp_path)
+    sh = pd.DataFrame({"标的证券代码": ["600000"], "融资余额": [1.0], "融资买入额": [2.0]})
+    monkeypatch.setattr(ak, "stock_margin_detail_sse", lambda date: sh)
+    monkeypatch.setattr(ak, "stock_margin_detail_szse", lambda date: pd.DataFrame())
+    with pytest.raises(E.IncompleteError):
+        E.fetch_margin(pd.Timestamp("2026-10-16"))
+    assert not list(tmp_path.rglob("*.parquet"))
