@@ -147,6 +147,244 @@ stockanalysis/
 ## 八、复用
 `features/fundamental.build_fundamental`、`data/fundamental`（缓存 / 重试 / 代码规范化）、`research/metrics`（rank_ic / summarize_ic / topk_excess）、`registry.Registry`、`selection/filters.py` 现有规则、`backtest/engine.run_backtest`、`backtest/metrics.segment_metrics`、`research/consistency.py`、`data/sync.py`（qlib 数据自动更新）。
 
+## 九、阶段 8~9：数据层重整与选股规则优化（2026-10-17 增补）
+
+2026-10-17 数据体检与选股方式评审后，用户的决定：
+- 数据：修错误 + 重组目录。暂不补充新数据，风格指数、准确市值、历史行业留作以后。
+- 选股优化，四项都做，全部只在研发区（≤ 2022-12-31）验证：
+  - long：大类上限、EP + BP 估值、业绩恶化预警。审查后补了两项代码问题（事件类卖点每日检查、单票权重上限），估值口径扩为 EP / 3 年平均 EP / EP+BP 三选一；
+  - short_reversal：开盘成交、行业上限；
+  - 烂股：市值门槛对比；
+  - 实盘跟踪报告，同时停止 breakout 每日出池。
+- 顺序：先数据、后规则。阶段 8 完成并核对选股、回测结果不变后，再进入阶段 9。
+
+体检结论：
+- 数据本身完整、正确。
+- 实时数据有三处滞后或失败，程序不提示：
+  - 10-16 两融只有沪市；
+  - baostock 只到 10-15；
+  - 东财快照一直断连，`exclude_st` 只好退回用财报名称判断。
+- 中证1000 缺 2025-04-16 一天，基准收益因此丢了两天。
+- 存放乱：
+  - akshare 数据分散在 `fundamental/` 和 `events/`，命名不一致；
+  - 快照每天新增一份；
+  - 公告 3577 个日文件，读一遍 8 秒、1.87GB；
+  - baostock 5481 个文件，只用 `is_st`，读一遍 34 秒；
+  - `paths.py` 说明过时。
+
+执行分支 `refactor/data-and-rules`（自 main），每个小步单独提交。
+
+### 阶段 8：数据层重整（选股、回测结果必须不变）
+
+#### 目标目录
+
+```
+data/
+  pool/  reports/                     不动
+  raw/                                可重下载的原始缓存（不入库），统一 <数据集>/<单元>.parquet
+    akshare/   yjbb xjll fhps yysj yjyg gdhs/<报告期>  margin notice/<yyyymmdd>  lhb lhb_jg/<yyyymm>
+               release/<yyyy>  ggcg repurchase spot/<yyyymmdd>（快照只留最新）
+    baostock/  daily/<qlib_code>  industry/<yyyymmdd>（只留最新）
+    longbridge/market_temp/<yyyy>
+  panel/                              由 raw 生成的紧凑表（不入库，可重建）
+    is_st.parquet  risk_notice.parquet  （各带 .meta.json）
+```
+
+原始单元文件不合并：缓存是否完整按文件修改时间判断（`fundamental.cache_valid`、`events._valid`），合并会破坏这套逻辑。
+
+#### 改动
+
+1. **`paths.py`**
+   - 新增 `RAW_DIR / AKSHARE_DIR / BAOSTOCK_DIR / LONGBRIDGE_DIR / PANEL_DIR`；
+   - 删除 `FUND_DIR / EVENTS_DIR`；
+   - 重写顶部说明。
+2. **路径改动**
+   - `data/fundamental.py`、`data/events.py`、`data/baostock_data.py`、`data/longbridge_cli.py`、`features/fundamental.py`（fhps 的 glob）改用新路径；
+   - fundamental 的文件名去掉 `<kind>_` 前缀，`_load_periods` 改用 `p.stem`。
+3. **快照只留最新**：`events._save_snapshot(df, dataset)` 写入今天的文件并删除旧的。`fetch_ggcg / fetch_repurchase / fetch_spot / fetch_industry` 共用。
+4. **两融不完整不落盘**：`fetch_margin` 在沪深任一边为空时抛出 `IncompleteError`。`update_events` 已有失败记录，日志写"未公布 / 不完整，下次重抓"。
+5. **新增 `data/panel.py`**
+   - `build_if_stale(name, src_files, builder, extra_meta)`：meta 记录源文件数、最大 mtime 和额外键（如风险关键词正则）。源或额外键变了就重建，否则直接读。
+   - `is_st_panel()`：生成 int8 宽表。
+   - `risk_notice_panel()`：只保留命中 `features/risk.RISK_TITLE`、且不命中 `RISK_TITLE_EXCLUDE` 的公告。正则仍只定义在 risk.py。
+   - 调用方：`features/risk.st()` 改读 is_st panel；`risk.risk_events()` 改读 risk_notice panel，按 start 截取。
+   - `update-data` 结束时重建 panel。
+6. **去掉 `exclude_st`**
+   - 删除 `filters.exclude_st`、`ctx["st_codes"]`、`signal.build_ctx` 中的取值、`reference.current_st_codes`；
+   - 修改 `pool_defaults.yaml`、`RULES.md` 第 2 节、`tests/test_filters.py`；
+   - `name_map` 保留快照优先、财报名称兜底。
+7. **基准缺日**：`backtest/points_engine._bench_returns` 先对收盘价做 ffill 再算收益（缺日收益记 0，次日拿到完整涨跌），仍打印缺日告警。
+8. **新增 `data/freshness.py`：数据截止日**
+   - 对比信号日 T，列出 qlib 日历、baostock（is_st panel 末日）、公告、两融（到 T-1 即正常）、龙虎榜、市场温度、各快照日期、数据版本；滞后的标 ⚠。
+   - 接入两处：
+     - 简报元信息下加"数据截止"，有 ⚠ 时展开成表（`selection/points_daily.py`）；
+     - `update-data` 结束时打印，并新增 `update-data --status`，只看状态、不下载。
+9. **一次性迁移**
+   - 脚本放在 scratchpad，不入库；用 `os.replace` 移动文件，保留 mtime。迁移内容：fundamental、events、baostock、market_temp、industry 移到新位置，快照只留最新，删除空的旧目录。
+   - 迁移前后核对文件数、行数、mtime。
+10. **其他**：`.gitignore` 改为忽略 `data/raw/`、`data/panel/`；README、ARCHITECTURE、各 data 模块顶部的布局说明同步修改。
+
+#### 阶段 8 验证
+
+- 新增单元测试：
+  - 快照删旧；
+  - 两融单边为空时抛异常且不落盘；
+  - `build_if_stale`：源变化、正则变化时重建；
+  - is_st panel 与逐股读取结果相同，risk_notice panel 与原 `risk_events` 结果相同；
+  - freshness 的 ⚠ 判断，以及两融 T-1 视为正常；
+  - 基准 ffill。
+- 全部测试通过，pyflakes 无告警；grep 确认没有残留的 `FUND_DIR / EVENTS_DIR / exclude_st / current_st_codes`。
+- 补数据：后台跑 `update-data --only baostock`，补 10-16；再跑 `--only events --events margin`，确认如实报告深市"不完整"。
+- 结果不变：
+  - `select --pool all --date 2026-10-16`：持仓与次日计划和已入库 CSV 一致；
+  - long 研发区回测年化仍为 15.68%（基准修复只影响超额，按实际变化记录）；
+  - `check` 0 差异。
+- 记录改造前后的读取耗时与内存。
+
+### 阶段 9：选股规则优化
+
+#### 9.0 先做：实盘记录不可改写（其余各项改 yaml 的前提）
+
+问题：每日选股都按**当前** yaml 从 `live_start` 重新推演。阶段 9 一改参数，2026-10-15 以来的"实盘"持仓就会被改写；如果实盘跟踪也用重新推演来算，就成了自己验证自己。
+
+做法：
+- **实盘的唯一依据是已入库的每日 CSV**，即当天实际发布的持仓和计划。
+- 每次规则改动开一个新的跟踪段：
+  - 改 yaml 的同时把 `live_start` 设为改动生效日；
+  - 在 `points.live_log` 记录各段的起止日期和 config_hash。
+- 旧段的 CSV 不动，`track` 把各段按时间拼接起来。
+
+#### 验收规则（事先定好，分两类）
+
+研发区只跑 `points-grid --starts 6`，与当前冻结参数（基线）比较。
+
+**一次只改一项，与基线比较**：通过的几项再一起组合确认一次，不做全因子网格，以免比较次数太多、把噪声当成改进。
+
+**A 类：信号质量类**（估值口径、业绩预警卖点）
+- long 5 年只有 22 笔交易，组合层面的差异多半是噪声。
+- 所以先在**候选集**上检验：每天满足买点的约 140 只股票等权，或用事件研究；样本大，要求 5 年中至少 4 年更好。
+- 候选集通过后，再看组合层面：合成年化不低于基线 1 个百分点以上，滚动验证两折都不差于基线。
+
+**B 类：风控类**（大类上限、单票权重上限、行业上限）
+- 按风险指标判断：
+  - 最差起点年化、最大回撤、单票最大贡献占比要改善；
+  - 年化下降不超过 1 个百分点。
+- 不要求收益提高。2020~2022 的收益主要来自煤炭股集中持仓，风控类改动降低收益是正常的。
+
+**通用**
+- 相邻参数也要满足，看邻域，不按单个冠军取参数。
+- 通过后才改 yaml，并按 9.0 开新跟踪段。
+- 保留集只跑一次作参考，报告注明"已看过，不作独立检验"。状态（production / observe）不因此改变。
+
+#### 9.1 long
+
+**① 事件类卖点改为每日检查**（B 类；代码里发现的问题，优先做）
+- 现状：`positions.sell_reasons` 中的条件卖点（`forecast_negative`、`industry_expensive`）和 `rank_exit` 只在月末检查日判断。业绩预减公告后，最多要等约 20 个交易日才卖出。这是"卖点偏迟"的一大原因，新增的预警卖点也会有同样的延迟。
+- 做法：
+  - `PointsSpec` 增加 `sell_daily: [条件名]`，列在其中的条件每日检查，其余仍按 freq；
+  - long 设为 `sell_daily: [forecast_negative]`，估值和 rank 类卖点仍按月检查。
+  - 对比：月末检查 vs 每日检查。
+
+**② 单票权重上限**（B 类；代码里发现的问题）
+- 现状：`points_engine.account` 只在买入时按"净值 / 10"建仓，之后从不再平衡。long 平均持有 592 天，兖矿一只涨了 354%，可能占到净值的三成以上。"10 只等权"只在建仓那一刻成立，单票集中的风险比行业集中更大。
+- 做法：
+  - `PointsSpec.max_weight`：检查日超过上限的减到目标权重；减仓卖出的部分由下一次买入补足。
+  - 只改记账，不改模拟器的持仓集合，前缀一致性检查不受影响。
+  - 简报持仓表增加"当前权重"一列。
+  - 网格取 max_weight ∈ {不设, 20%, 25%}。
+
+**③ 大类上限**（B 类）
+- 东财行业名带"Ⅱ"，就是申万二级，因此用申万官方的二级 → 一级映射，不手工拼大类：
+  - 新增 `config/sw_l1.yaml`，未映射的行业自成一类；
+  - 新增 `PointsSpec.sector_max`，照 `ind_count` 的方式计数。
+- 要事先说明效果有限：
+  - 申万一级里"银行"和"非银金融"是两类，当前 5 只金融股（3 银行 + 2 非银）在 sector_max=3 下不会被拦；
+  - long 真正集中的是"高股息 / 低估值"风格（银行、煤炭、电力），大类上限只能缓解一部分。
+- 网格取 sector_max ∈ {2, 3, 不设}；另加一个可选合并组 `大金融`（银行 + 非银金融），作为对照。
+
+**④ 估值口径**（A 类）
+- 原方案只有 EP + BP。但 BP 解决不了原来想解决的"周期股盈利高点时 EP 最便宜"问题，而且会偏向 PB < 1 的银行和地产。2021~2022 年地产就是高 BP 陷阱。
+- 改为在行业内比较三种口径：
+  - EP（基线）；
+  - 3 年平均 EP：用近 3 个年报 EPS 的均值，平滑周期，直接针对盈利高点的问题；
+  - EP + BP 各半。
+- 实现：`_industry_ep_rank` 增加 `basis: ep | ep3y | ep_bp`；`industry_cheap / industry_expensive` 透传，默认 `ep`，旧配置结果不变。
+- `ep3y` 由 `features/fundamental` 按年报计算，按披露日次日可见。
+
+**⑤ 业绩恶化预警**（A 类，在 ① 之后做）
+- 新条件 `profit_deteriorate {yoy}`：最近已披露报告期的净利润同比 ≤ yoy。
+- 注意：
+  - 净利润同比是年初累计口径；
+  - 年报和半年报通常已有业绩预告在先，这个条件主要在一季报、三季报上提前。
+- 列入 `sell_daily`；网格取 {不用, -30%, -50%}。
+
+**测试**
+- `sell_daily` 在非检查日也会触发；
+- max_weight 减仓后记账自检通过；
+- `sector_max` 状态机；
+- `basis=ep` 与旧结果完全相同；
+- `ep3y` 和 `profit_deteriorate` 都按披露日次日可见。
+
+#### 9.2 short_reversal：开盘成交 + 行业上限
+
+- **开盘成交**
+  - 先做事件研究，验证前提：反转信号触发后，T+1 的隔夜收益（T 日收盘到 T+1 开盘）和 T+1 日内收益分别是多少。只有隔夜收益明显为正，"开盘买"才有意义；否则跳过这一项。
+  - 实现：`DEAL_PRICES` 增加 `open`，fill 取 `ctx["open"]`。
+  - 买和卖都按开盘价成交，口径一致：持有满 5 天、止损都在次日开盘卖出。
+  - 可行性：开盘价达到涨停价（按前收盘和板块涨跌幅计算）的买不进，达到跌停价的卖不出。
+  - 开盘集合竞价的冲击更大，open 方案的滑点从千 1 提到千 2 比较。
+  - 网格对比 close / vwap / open。
+- **行业上限**（B 类）：网格取 industry_max ∈ {2, 3, 不设}。
+- **测试**：开盘涨停买不进、开盘跌停卖不出、开盘成交的记账。
+
+#### 9.3 烂股：市值门槛对比
+
+- **只按尾部风险判断，不按收益判断**：
+  - 研发区小市值跑赢，是 2018~2022 微盘股行情的结果；
+  - 2024 年起退市新规收紧（市值退市门槛提高、ST 范围扩大），小市值的尾部风险在研发区里体现不出来。
+  - 按研发区收益放宽门槛，等于去追小盘因子。
+- 做法：
+  - 用 `quality` 命令对比 15 亿、20 亿、30 亿三档的剔除组 / 保留组，看 60 日大跌率、退市 / 戴帽比例；
+  - 收益只列出，不作为依据。
+- 结论：只有放宽后保留组的大跌率不上升，才改 `pool_defaults`；否则维持 30 亿，只出报告。
+- 市值仍用"净利润 / EPS 推算股本"的近似，报告中注明。
+
+#### 9.4 实盘跟踪报告 + 停 breakout
+
+- **新命令 `track --pool all`**（`cli/track.py`，接入 `cli/__init__.COMMANDS`），每个池输出 `data/reports/track_<pool>.md`：
+  - **实盘净值来自已入库的 CSV**：逐日持仓和计划买卖，按 T+1 收盘价和成本记账；各跟踪段（9.0）按时间拼接；
+  - 对照项：用当前配置重新推演同一区间，两者的差异来自数据修订或规则改动，分开列出；
+  - 与回测预期对比：研发区、保留集的月度收益分布，实盘落在第几分位；
+  - short_reversal 增加一条提示：实盘超额低于预期区间下沿时，建议降为 observe。
+- **short_breakout**：改为 `enabled: false`，状态仍是 observe，配置和历史股池保留；README、RULES 说明它已停止每日出池，作为对照的结论保留。
+
+#### 阶段 9 顺序
+
+1. 9.0 跟踪段 + 9.4 track、停 breakout：先把实盘记录固定下来。
+2. 9.1 ①（事件类卖点每日检查）、②（单票权重上限）：代码里发现的问题。
+3. 9.1 ③ ④ ⑤、9.2、9.3：逐项研究，一次只改一项。
+4. 组合确认 → 改 yaml，开新跟踪段 → 保留集参考跑一次。
+
+#### 阶段 9 交付
+
+- 网格报告：`data/reports/points_grid_{long,short_reversal}_v4.md`、市值门槛对比报告。
+- 采纳的参数改进 yaml；RULES 第 3、4、5、7 节同步更新。
+- 首个实盘跟踪报告。
+- 进度表与日志更新；测试全过；是否合并 main 由用户确认，不推送远端。
+
+### 阶段 8~9 复用
+
+- `research/points_grid`：多起点、滚动验证、邻域判断。
+- `backtest/runner.backtest_pool / backtest_window`。
+- `research/quality_check`：剔除效果统计。
+- `selection/positions` 中的 `ind_count`：行业上限计数，大类上限照此实现。
+- `features/fundamental` 的 `bp / netprofit_yoy / _ttm / _latest_visible`：已有，ep3y 照此计算，不用新数据。
+- `research/event_study`：用来检验候选集和隔夜收益。
+- `points_engine.account` 的记账自检：max_weight 改动之后仍要通过。
+- `features/risk.RISK_TITLE`：风险关键词唯一定义处。
+- `fundamental.cache_valid`、`events._valid`：缓存完整性判断，不改。
+- `sync.data_version`：数据版本。
+
 ---
 
 ## 进度跟踪
@@ -177,6 +415,18 @@ stockanalysis/
 | 6 | 短线突破池 `short_breakout`（对照）：规则落地 + 研发区网格 + 滚动验证 | ☑ | e550214 | 网格 v1（24）全部为负；定稿：止损 5%、持有 10 天，observe 对照 |
 | 7 | 冻结 → 保留集评估一次 → 定状态 | ☑ | e550214 | long / short_reversal production，short_breakout observe（RULES.md 第 5 节） |
 | 7 | 删旧三池与 lgbm 代码；更新 README / RULES / ARCHITECTURE；首期股池 + MCP 复核 | ☑ | 65a0737 | ec49829 / 5d4a4d1 删除；文档改写；首期股池 2026-10-16 + 长桥体检复核；check 前缀一致性 0 差异 |
+| 8 | 8.1 计划入库、建分支 `refactor/data-and-rules` | ☑ | | |
+| 8 | 8.2 目录与命名（raw/akshare、raw/baostock、raw/longbridge、panel）+ 迁移 | ☐ | | |
+| 8 | 8.3 快照只留最新；两融不完整不落盘 | ☐ | | |
+| 8 | 8.4 panel 派生表（is_st、risk_notice） | ☐ | | |
+| 8 | 8.5 去掉 exclude_st；基准缺日 ffill；数据截止日（简报 + `update-data --status`） | ☐ | | |
+| 8 | 8.6 文档；核对选股 / 回测结果不变 | ☐ | | |
+| 9 | 9.0 跟踪段（live_log）+ 9.4 `track` 命令、停 short_breakout | ☐ | | |
+| 9 | 9.1 ① 事件类卖点每日检查（sell_daily）② 单票权重上限（max_weight） | ☐ | | |
+| 9 | 9.1 ③ 大类上限（申万一级）④ 估值口径（ep / ep3y / ep_bp）⑤ 业绩恶化预警 | ☐ | | |
+| 9 | 9.2 short_reversal 开盘成交 + 行业上限 | ☐ | | |
+| 9 | 9.3 市值门槛对比（只看尾部风险） | ☐ | | |
+| 9 | 组合确认 → 改 yaml、开新跟踪段 → 保留集参考一次；RULES 更新 | ☐ | | |
 
 ### 进度日志
 
@@ -278,3 +528,7 @@ stockanalysis/
   （行业内便宜 5/5 年为正；分红 / 业绩预增 / 股东户数大降 4/5；追涨类 0~1/5；反转类 1~2/5）。烂股剔除组后续平均超额高于保留组，
   但大跌率更高，定位为尾部风险控制（RULES 第 6 节）。补齐公告后重跑保留集：long +13.2% / +8.5%，short_reversal +9.7% / +3.4%，
   short_breakout -5.1% / -10.4%，状态不变。用户同意合并到 main。
+- 2026-10-17：数据体检：数据本身完整正确（qlib 与 baostock 价格 / 成交额 / 停牌逐格对得上，各缓存单元齐全）；
+  实时数据有三处滞后或失败且不提示（两融 10-16 只有沪市、baostock 只到 10-15、东财快照断连），中证1000 缺 2025-04-16；
+  存放分散、快照每天累积、公告 / baostock 小文件读取慢（8 秒 1.87GB / 34 秒）。选股方法评审后用户决定：先做阶段 8 数据层重整，
+  再做阶段 9 规则优化（全部只在研发区验证，验收规则见第九节）。
