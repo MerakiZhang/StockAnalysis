@@ -161,13 +161,13 @@ stockanalysis/
 | 1 | `data/events.py`：两融、龙虎榜、股东户数、解禁、增减持 / 回购、公告排雷 | ☑ | | 立案调查公告归在"其他"类，须抓全部公告按标题识别 |
 | 1 | `data/longbridge_cli.py`：市场温度历史、实盘体检封装 | ☑ | | 市场温度单次区间上限 3 年，按年缓存 |
 | 1 | `update-data` 命令接入新数据源；防未来单元测试 | ☑ | | `--only fundamental,events,baostock,market_temp`，`tests/test_data_layer.py` |
-| 1 | 全量历史下载（后台） | ◐ | | baostock / 两融 / 龙虎榜等已完成；公告进行中（节假日失败单元重跑即补） |
+| 1 | 全量历史下载（后台） | ☑ | | 全部完成，各数据集 0 失败（2026-10-17） |
 | 2 | 烂股剔除规则（exit）+ 解禁回避（entry）；`account_boards` 全局板块权限 | ☑ | | `features/risk.py` + 8 条过滤规则写入 pool_defaults；`tests/test_risk.py` |
-| 2 | 研发区剔除效果统计（每年剔除只数、剔除组 vs 保留组后续收益） | ◐ | | `quality` 命令已就绪（2018H1 冒烟通过）；全量结果待公告 / baostock 数据下载完 ⛔ 汇报 |
+| 2 | 研发区剔除效果统计（每年剔除只数、剔除组 vs 保留组后续收益） | ☑ | | 正式版 quality_report_long_final.md：剔除组平均超额更高但大跌率更高，定位为尾部风险控制 |
 | 3 | `features/technical.py`（akquant.talib + qlib 表达式） | ☑ | a4a456d | akquant.talib 逐股计算、停牌缺口不传染；量能统一用成交额（qlib volume 口径不一致） |
 | 3 | `features/events.py`、`features/regime.py` | ☑ | a4a456d | |
 | 3 | `research/event_study.py` + `event-study` 命令；MCP 规则翻译清单 | ☑ | a4a456d | 翻译清单 = `features/conditions.py`（54 条，含阈值邻域）；2018H1 冒烟通过 |
-| 3 | 研发区事件研究报告 | ◐ | 694d857 | 初步版完成并经用户定方向（见进度日志）；数据下完后重跑正式版 |
+| 3 | 研发区事件研究报告 | ☑ | 694d857 | 正式版 event_study_{long,short_reversal}_final.md，结论与初步版一致 |
 | 4 | `selection/points.py` 买卖点规则注册表 | ☑ | | 规则直接引用条件库（CONDITIONS）+ yaml points 段，加载时校验条件名与参数 |
 | 4 | `selection/positions.py` 状态机 `step_positions()` | ☑ | | `decide()` + `simulate()`；`tests/test_positions.py` |
 | 4 | `multifactor` 优先分、`signal_points` 回测策略、schema / 配置 | ☑ | | 回测改为自记账（`backtest/points_engine.py`），见进度日志 |
@@ -274,3 +274,7 @@ stockanalysis/
   - live_start 2026-10-15，首期股池基于 2026-10-16 数据生成（long 10 只：银行 3、保险 1、券商 1 等；short_reversal 10 只
     均为 10-15 美国 CPI 超预期后的急跌股，其中有色 4 只，同受一次宏观冲击；short_breakout 空仓）。
   - 遗留：公告下载完成后补跑 `quality` / 正式版 `event-study`，并重跑保留集回测核对风险公告规则（评估时公告约到 2024 年上半年）。
+- 2026-10-17：公告下载完成并补齐失败单元（各事件数据集 0 失败）。正式版 `quality` / `event-study` 完成，结论与初步版一致
+  （行业内便宜 5/5 年为正；分红 / 业绩预增 / 股东户数大降 4/5；追涨类 0~1/5；反转类 1~2/5）。烂股剔除组后续平均超额高于保留组，
+  但大跌率更高，定位为尾部风险控制（RULES 第 6 节）。补齐公告后重跑保留集：long +13.2% / +8.5%，short_reversal +9.7% / +3.4%，
+  short_breakout -5.1% / -10.4%，状态不变。用户同意合并到 main。
