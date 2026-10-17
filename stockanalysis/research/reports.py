@@ -47,25 +47,16 @@ def backtest_section(pool, res: dict, start: str, end: str, title: str | None = 
     return lines + [""]
 
 
-def train_section(pool, manifests: dict, show_holdout: bool = False) -> list[str]:
-    """训练报告：默认只列研发区（测试期起点 ≤ in_sample_end）的窗口与 IC。"""
-    ins = pd.Timestamp(pool.backtest.get("in_sample_end", "2022-12-31"))
-    lines = [f"universe {pool.universe} · 标签 {pool.model.get('label_horizon', 5)} 日 · "
-             f"{'研发区+保留集' if show_holdout else f'研发区（≤ {ins.date()}）'}", ""]
-    for kind, m in manifests.items():
-        ic = m["ic"] if show_holdout else m["ic_dev"]
-        ic_line = (f"- IC {ic['ic']:.4f} / RankIC {ic['rank_ic']:.4f} / RankICIR {ic.get('rank_ic_ir', float('nan')):.2f}"
-                   if pd.notna(ic["rank_ic"]) else
-                   f"- 研发区（≤ {ins.date()}）内没有测试窗口；保留集的窗口与 IC 需加 --show-holdout 查看")
-        lines += [f"## {kind}", "", f"- 训练签名 {m['signature']} · 参数 {m['params']}", ic_line,
-                  "", "| 窗口 | train | valid | test | RankIC | RankICIR |", "|---|---|---|---|---|---|"]
-        for w in m["windows"]:
-            if not show_holdout and pd.Timestamp(w["test"][0]) > ins:
-                continue
-            lines.append(f"| {w['window']} | {w['train'][0]}~{w['train'][1]} | {w['valid'][0]}~{w['valid'][1]} | "
-                         f"{w['test'][0]}~{w['test'][1]} | {w['rank_ic']:.4f} | {w['rank_ic_ir']:.2f} |")
-        if "feature_importance_top30" in m:  # 特征重要性不含业绩信息，照常列出
-            top = list(m["feature_importance_top30"].items())[:15]
-            lines += ["", "最近窗口特征重要性 Top15：" + "、".join(f"{k}({v:.0f})" for k, v in top)]
-        lines.append("")
+def points_section(pool, res: dict) -> list[str]:
+    """买卖点池补充：交易统计、卖出原因分布、规则摘要。"""
+    p = pool.points
+    rules = {k: v for k, v in vars(p).items() if k not in ("colmap",) and v not in (None, {}, False)}
+    lines = ["### 交易统计（扣往返成本）", "",
+             f"- 完整交易 {res.get('trades', 0)} 笔 · 胜率 {res.get('win_rate', float('nan')):.1%} · "
+             f"平均每笔 {res.get('avg_ret', float('nan')):.2%} · 盈亏比 {res.get('payoff', float('nan')):.2f} · "
+             f"平均持有 {res.get('avg_days', float('nan')):.1f} 个交易日",
+             f"- 平均持仓 {res.get('avg_pos', float('nan')):.1f} 只（上限 {p.max_positions}）· "
+             f"平均仓位 {res.get('exposure', float('nan')):.1%}",
+             "- 卖出原因：" + "、".join(f"{k} {v}" for k, v in res.get("sell_reasons", {}).items()), "",
+             "### 规则", "", "```", *(f"{k}: {v}" for k, v in rules.items()), "```", ""]
     return lines

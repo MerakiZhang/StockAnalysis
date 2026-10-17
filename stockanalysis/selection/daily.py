@@ -19,7 +19,7 @@ def signal_date(date: str | None = None) -> pd.Timestamp:
 
 
 def run_selection(name: str, date: str | None = None, init: bool = False,
-                  names: dict[str, str] | None = None):
+                  names: dict[str, str] | None = None, health: bool = True, sets: list[str] | None = None):
     from ..data.market import trade_calendar
     from ..data.sync import data_version
     from .schedule import is_signal_day
@@ -27,9 +27,14 @@ def run_selection(name: str, date: str | None = None, init: bool = False,
     from .signal import build_signal
     from .store import load_prev, save_pool
 
-    pool = load_pool(name)
+    pool = load_pool(name, sets=sets)
     names = names or {}
     t = signal_date(date)
+    if pool.points is not None:   # 买卖点池：模拟器推演（selection/points_daily.py）
+        from .points_daily import run_points_selection
+
+        print(f"\n===== {name} 买卖点池 @ {t.date()}（status={pool.status}）=====", flush=True)
+        return run_points_selection(pool, t, names, health=health)
     print(f"\n===== {name} 股池 @ {t.date()}（scorer={pool.scorer['name']}，status={pool.status}）=====", flush=True)
     if pool.status != "production":
         print(f"[注意] {name} 为 observe 池：仅观察跟踪，不建议据此交易", flush=True)

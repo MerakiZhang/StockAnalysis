@@ -154,20 +154,25 @@ def test_list_pools_enabled_and_templates(cfg_dir):
 
 
 def test_parse_sets_nested_and_typed():
-    out = parse_sets(["model.lgbm.learning_rate=0.05", "rebalance.hold_thresh=10", "signal.score_ema=null"])
-    assert out == {"model": {"lgbm": {"learning_rate": 0.05}}, "rebalance": {"hold_thresh": 10},
+    out = parse_sets(["points.atr_stop.k=2.5", "rebalance.hold_thresh=10", "signal.score_ema=null"])
+    assert out == {"points": {"atr_stop": {"k": 2.5}}, "rebalance": {"hold_thresh": 10},
                    "signal": {"score_ema": None}}
 
 
 # ---------------------------------------------------------------- 仓库内的真实配置
+RULE_POOLS = ("long", "short_reversal", "short_breakout")               # 全市场规则池
+
+
 def test_repo_pools_load_and_validate():
     for name in list_pools():
         spec = load_pool(name)
-        assert spec.status == "observe" and spec.enabled
-        assert spec.rebalance.hold_thresh == 10 and spec.scorer["name"] == "lgbm"
+        assert spec.status in ("production", "observe")
         assert next(iter(spec.filters)) == "in_universe"
-    assert "min_amount" not in load_pool("hs300").filters
-    assert "min_amount" in load_pool("zz500").filters
+        assert spec.filters["boards"] == {"boards": spec.raw["account_boards"]}   # 板块权限取全局设置
+    for name in RULE_POOLS:
+        spec = load_pool(name)
+        assert spec.universe == "all" and "not_st" in spec.filters and "min_amount" in spec.filters
+        assert spec.points is not None and spec.points.max_positions == 10
 
 
 def test_repo_pool_yaml_only_has_overrides():
@@ -176,9 +181,15 @@ def test_repo_pool_yaml_only_has_overrides():
 
     for name in list_pools():
         raw = yaml.safe_load((POOLS_DIR / f"{name}.yaml").read_text(encoding="utf-8"))
-        assert not {"sizing", "rebalance", "scorer", "strategy"} & set(raw), name
+        assert not {"sizing", "rebalance"} & set(raw), name
 
 
-def test_merged_config_keeps_model_section_for_signatures():
-    cfg = merged_config("hs300")
-    assert cfg["model"]["lgbm"]["num_boost_round"] == 200
+def test_apply_sets_replaces_leaf_dicts():
+    from stockanalysis.config.loader import apply_sets
+
+    cfg = {"points": {"buy": {"a": {}, "b": {"x": 1}}, "stop_loss": 0.05}, "cost": {"fee": {"lr": 0.1, "n": 5}}}
+    out = apply_sets(cfg, ["points.buy={a: {}}", "points.buy_any={}", "cost.fee.lr=0.05"])
+    assert out["points"]["buy"] == {"a": {}}           # 字典整体替换，不合并
+    assert out["points"]["buy_any"] == {} and out["points"]["stop_loss"] == 0.05
+    assert out["cost"]["fee"] == {"lr": 0.05, "n": 5}   # 中间层保留
+    assert cfg["points"]["buy"] == {"a": {}, "b": {"x": 1}}   # 不改原对象

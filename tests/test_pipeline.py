@@ -64,12 +64,13 @@ def test_select_keeps_entry_date_and_marks_status():
 
 def test_repo_pools_validate_against_registries():
     for name in list_pools():
-        spec = load_pool(name)  # 校验注册名与参数名
-        assert spec.strategy["name"] == "entry_aware_topk_dropout"
+        spec = load_pool(name)  # 校验注册名与参数名（含买卖点条件名与参数）
+        assert spec.strategy["name"] in ("entry_aware_topk_dropout", "signal_points")
+        assert (spec.points is not None) == (spec.strategy["name"] == "signal_points")
 
 
 def test_override_replaces_whole_section():
-    spec = load_pool("hs300", override={"scorer": {"name": "random", "seed": 1}})
+    spec = load_pool("long", override={"scorer": {"name": "random", "seed": 1}})
     assert spec.scorer == {"name": "random", "seed": 1}
 
 

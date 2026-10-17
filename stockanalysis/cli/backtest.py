@@ -20,12 +20,14 @@ def run(args) -> None:
     preflight(args)
     from ..backtest.runner import backtest_pool, backtest_window
     from ..config import load_pool
-    from ..research.reports import backtest_section, header, write_report
+    from ..research.reports import backtest_section, header, points_section, write_report
 
     for name in resolve_pools(args.pool):
         override = {"scorer": {"name": args.scorer}} if args.scorer else None
         pool = load_pool(name, override=override, sets=args.set)
         start, end = backtest_window(pool, args.start, args.end, args.show_holdout)
         res = backtest_pool(pool, start, end)
-        write_report(f"backtest_{name}", header(f"回测报告：{name}", f"区间 {start} ~ {end}")
-                     + backtest_section(pool, res, start, end), args.tag)
+        lines = backtest_section(pool, res, start, end)
+        if pool.points is not None and not res.get("error"):
+            lines += points_section(pool, res)
+        write_report(f"backtest_{name}", header(f"回测报告：{name}", f"区间 {start} ~ {end}") + lines, args.tag)

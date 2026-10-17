@@ -3,7 +3,7 @@
 作为 ML 特征经 StaticDataLoader 并入 Alpha158（不写入 cn_data），方向不需处理（模型自学），
 但统一为"有经济含义的比率"，便于截面标准化。
 
-防未来函数：报告期数据从 available_date（披露截止日）起可见；分红从预案公告日起可见。
+防未来函数：报告期数据从 available_date（实际披露日次日，缺失时为披露截止日）起可见；分红从预案公告日起可见。
 
 价格口径（重要）：qlib $close 是复权价，真实成交价 = $close / $factor。
 每股指标（EPS / 每股净资产 / 每股分红）按当时股本计，送转后与新股价不可比；
@@ -41,9 +41,16 @@ def _asof(wide: pd.DataFrame, dates: pd.Series, codes: pd.Series) -> np.ndarray:
 
 
 def _latest_visible(df: pd.DataFrame, field: str, cal: pd.DatetimeIndex, codes: list[str]) -> pd.DataFrame:
-    """报告期长表 -> 宽表：每个交易日取已披露的最新报告期值。"""
+    """报告期长表 -> 宽表：每个交易日取已披露的最新报告期值。
+
+    按实际披露日时，较早报告期可能晚于较新报告期披露（如一季报先于年报），
+    这类"倒退"的记录丢弃，保证每天取到的是已披露的最新报告期。
+    """
     df = df[df["qlib_code"].isin(codes)].dropna(subset=[field])
-    df = df.sort_values(["available_date", "period"]).drop_duplicates(["qlib_code", "available_date"], keep="last")
+    df = df.sort_values(["qlib_code", "available_date", "period"])
+    pnum = df["period"].astype(int)
+    df = df[pnum >= pnum.groupby(df["qlib_code"]).cummax()]
+    df = df.drop_duplicates(["qlib_code", "available_date"], keep="last")
     wide = df.pivot(index="available_date", columns="qlib_code", values=field).astype("float64")
     wide = wide.reindex(cal.union(wide.index)).sort_index().ffill().reindex(cal)
     return wide.reindex(columns=codes)
@@ -145,3 +152,33 @@ def fundamental_panel(universe: str, start: str, end: str) -> pd.DataFrame:
     long = long.dropna(how="all").astype("float32")
     long.columns = pd.MultiIndex.from_product([["feature"], list(long.columns)])
     return long.sort_index()
+
+
+def panel(ctx: dict) -> dict[str, pd.DataFrame]:
+    """ctx 区间与股票上的基本面特征（FEATURES），首次调用时计算并缓存在 ctx["_fund"]。"""
+    if "_fund" not in ctx:
+        from ..data.market import load_wide
+
+        dates = pd.DatetimeIndex(ctx["dates"])
+        codes = list(ctx["codes"])
+        wide = load_wide(codes, f"{START_YEAR}-01-01", str(dates[-1].date()), ("close", "factor"))
+        close = wide["close"].reindex(columns=codes)
+        factor = wide["factor"].reindex(columns=codes)
+        feats = build_fundamental(codes, str(dates[0].date()), str(dates[-1].date()), close, factor)
+        ctx["_fund"] = {k: v.reindex(index=dates, columns=codes) for k, v in feats.items()}
+    return ctx["_fund"]
+
+
+def industry_map() -> pd.Series:
+    """qlib_code -> 行业（只用一套分类，避免混用口径）：业绩报表"所处行业"（东财行业）优先，
+    无缓存时用 baostock 证监会行业快照。两者都是**当前**分类，用于历史回测有轻微前视，报告中注明。"""
+    try:
+        yj = fd.load_yjbb_all(START_YEAR).sort_values("period").dropna(subset=["industry"])
+        em = yj.drop_duplicates("qlib_code", keep="last").set_index("qlib_code")["industry"]
+        if len(em):
+            return em
+    except FileNotFoundError:
+        pass
+    from ..data.baostock_data import load_industry
+
+    return load_industry()

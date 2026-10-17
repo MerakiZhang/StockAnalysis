@@ -1,9 +1,12 @@
-# 系统级设置（资金、成本、撮合、回测窗口、模型、数据同步）。
+# 系统级设置（资金、账户板块权限、成本、撮合、回测窗口、数据同步）。
 # 合并顺序：本文件 → config/pool_defaults.yaml（选股规则）→ config/pools/<name>.yaml，后者覆盖前者。
 # qlib 数据目录默认 ~/.qlib/qlib_data/cn_data，可用环境变量 QLIB_DATA 覆盖。
 
-# 回测初始资金（元）。按实际资金设置：5 只等权时单票约 account/5。
+# 回测初始资金（元）。按实际资金设置：各池独立，10 只等权时单票约 account/10。
 account: 1000000
+
+# 账户可交易板块：main=主板 cyb=创业板 kcb=科创板 bse=北交所。所有股池的 boards 规则默认用它，改一处全部生效。
+account_boards: [main]
 
 # ---------- 数据同步（stockanalysis/data/sync.py）----------
 data:
@@ -29,14 +32,3 @@ backtest:
   end: null                 # null = 数据最新交易日
   in_sample_end: '2022-12-31'   # ≤ 此日为研发区（调参/选模型），之后为保留集
 
-# ---------- 模型公共参数（lgbm / linear 共用，池内可覆盖）----------
-model:
-  label_horizon: 5          # 标签：未来 5 日收益（T+1 收盘起算）
-  train_years: 4            # 每次滚动训练窗口
-  valid_months: 6           # 验证段（记录损失曲线）
-  retrain: yearly           # yearly / quarterly
-  seed: 42
-  lgbm:                     # 覆盖 qlib Alpha158 基准参数（stockanalysis/models/estimators.py LGBM_DEFAULTS）
-    learning_rate: 0.05     # 研发区 RankIC 三池均优于 0.2（hs300 .051/.049 zz500 .060/.056 zz1000 .094/.089）
-    early_stopping_rounds: 0   # 不早停：早停在部分窗口第 1 棵树即停止，模型退化、分数大量并列
-    num_boost_round: 200       # 研发区树数研究（25~400）：200 棵 RankIC 三池最高，Top5 两池最高

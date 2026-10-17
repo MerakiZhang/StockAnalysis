@@ -1,5 +1,5 @@
 """select：生成当期股池（数据最新交易日），写 data/pool/<池>/<日期>.csv 与简报。"""
-from .common import add_pool_arg, add_sync_args, preflight, resolve_pools
+from .common import add_pool_arg, add_set_arg, add_sync_args, preflight, resolve_pools
 
 HELP = "生成当期股池"
 
@@ -7,7 +7,9 @@ HELP = "生成当期股池"
 def add_arguments(p) -> None:
     add_pool_arg(p)
     p.add_argument("--date", default=None, help="信号日，默认数据最新交易日")
-    p.add_argument("--init", action="store_true", help="忽略上期股池，按纯排名重新建仓")
+    p.add_argument("--init", action="store_true", help="忽略上期股池，按纯排名重新建仓（指数池）")
+    p.add_argument("--no-health", action="store_true", help="买卖点池不调用长桥 CLI 体检")
+    add_set_arg(p)
     add_sync_args(p)
 
 
@@ -18,4 +20,4 @@ def run(args) -> None:
 
     names = name_map()
     for name in resolve_pools(args.pool):
-        run_selection(name, args.date, args.init, names)
+        run_selection(name, args.date, args.init, names, health=not args.no_health, sets=args.set)

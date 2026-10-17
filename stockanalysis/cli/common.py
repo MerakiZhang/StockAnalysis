@@ -33,7 +33,7 @@ def resolve_pools(text: str) -> list[str]:
 
 def add_set_arg(p: argparse.ArgumentParser) -> None:
     p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                   help="点路径覆盖池配置，可重复，如 --set rebalance.hold_thresh=5 --set model.lgbm.learning_rate=0.1")
+                   help="点路径覆盖池配置，可重复，如 --set rebalance.hold_thresh=5 --set points.stop_loss=0.08")
 
 
 def add_holdout_arg(p: argparse.ArgumentParser) -> None:

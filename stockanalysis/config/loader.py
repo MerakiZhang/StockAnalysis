@@ -1,7 +1,7 @@
 """配置加载：发现股池、按层深合并、校验、计算配置 hash。
 
 合并顺序（后者覆盖前者，dict 递归合并）：
-    config/global.yaml → config/pool_defaults.yaml → config/pools/<name>.yaml → override（整段替换）→ sets（点路径）
+    config/global.yaml → config/pool_defaults.yaml → config/pools/<name>.yaml → override（整段替换）→ sets（点路径，叶子值整体替换）
 
 - 加股池 = 在 config/pools/ 加一个 yaml（只写与默认不同的项）；`enabled: false` 暂停而不删除。
 - 改所有池的规则 = 改 pool_defaults.yaml；只改某池 = 在该池 yaml 覆盖。
@@ -18,8 +18,8 @@ from pathlib import Path
 import yaml
 
 from .. import paths
-from .schema import (MANDATORY_FILTERS, REBALANCE_FREQS, STATUSES, TOP_LEVEL_KEYS, PoolSpec, RebalanceRule,
-                     Sizing, section)
+from .schema import (DEAL_PRICES, FILL_MODES, MANDATORY_FILTERS, POINTS_STRATEGY, REBALANCE_FREQS, STATUSES, TOP_LEVEL_KEYS,
+                     PointsSpec, PoolSpec, RebalanceRule, Sizing, section)
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -46,7 +46,7 @@ def load_global(path: Path | None = None) -> dict:
 
 
 def parse_sets(sets: list[str] | None) -> dict:
-    """["model.lgbm.learning_rate=0.05", "rebalance.hold_thresh=10"] -> 嵌套 dict（值按 yaml 解析）。"""
+    """["points.stop_loss=0.05", "rebalance.hold_thresh=10"] -> 嵌套 dict（值按 yaml 解析）。"""
     out: dict = {}
     for item in sets or []:
         if "=" not in item:
@@ -68,14 +68,35 @@ def config_hash(cfg: dict) -> str:
 def default_registries() -> dict:
     # 延迟导入：注册表模块依赖 qlib/pandas，仅在校验时加载
     from ..backtest.strategies import STRATEGIES
+    from ..features.conditions import CONDITIONS
     from ..models.scorers import SCORERS
     from ..selection.filters import FILTERS
 
-    return {"filters": FILTERS, "scorers": SCORERS, "strategies": STRATEGIES}
+    return {"filters": FILTERS, "scorers": SCORERS, "strategies": STRATEGIES, "conditions": CONDITIONS}
 
 
-def _resolve_filters(name: str, filters: dict | None) -> dict[str, dict]:
+def _build_points(name: str, raw: dict | None) -> PointsSpec:
+    p = section(PointsSpec, raw, f"池 {name}.points")
+    for g, conds in p.groups().items():
+        if not isinstance(conds, dict):
+            raise TypeError(f"池 {name}.points.{g} 须为 {{条件名: 参数}}")
+    if p.freq not in REBALANCE_FREQS:
+        raise ValueError(f"池 '{name}'：points.freq 须为 {REBALANCE_FREQS}")
+    if p.deal_price not in DEAL_PRICES:
+        raise ValueError(f"池 '{name}'：points.deal_price 须为 {DEAL_PRICES}")
+    if p.fill not in FILL_MODES:
+        raise ValueError(f"池 '{name}'：points.fill 须为 {FILL_MODES}")
+    if not p.buy and not p.buy_any and p.fill == "strict":
+        raise ValueError(f"池 '{name}'：points 未设置任何买点条件")
+    return p
+
+
+def _resolve_filters(name: str, filters: dict | None, account_boards: list[str] | None = None) -> dict[str, dict]:
     filters = dict(filters or {})
+    if isinstance(filters.get("boards"), dict) and "boards" not in filters["boards"]:
+        if not account_boards:
+            raise ValueError(f"池 '{name}'：boards 规则未指定板块，且 global.yaml 未设置 account_boards")
+        filters["boards"] = {**filters["boards"], "boards": list(account_boards)}
     for f in MANDATORY_FILTERS:
         if filters.get(f) is False:
             raise ValueError(f"池 '{name}'：过滤规则 {f} 不可关闭")
@@ -109,7 +130,12 @@ def build_pool_spec(name: str, cfg: dict, registries: dict | None = None, valida
     signal = dict(cfg.get("signal") or {})
     if set(signal) - {"score_ema"}:
         raise KeyError(f"池 {name}.signal 含未知项 {sorted(set(signal) - {'score_ema'})}")
-    cfg["filters"] = _resolve_filters(name, cfg.get("filters"))
+    cfg["filters"] = _resolve_filters(name, cfg.get("filters"), cfg.get("account_boards"))
+    points = None
+    if cfg["strategy"].get("name") == POINTS_STRATEGY:
+        points = _build_points(name, cfg.get("points"))
+    elif cfg.get("points"):
+        raise ValueError(f"池 '{name}'：只有 strategy.name={POINTS_STRATEGY} 的池才能写 points")
 
     spec = PoolSpec(
         name=name,
@@ -127,10 +153,10 @@ def build_pool_spec(name: str, cfg: dict, registries: dict | None = None, valida
         cost=dict(cfg.get("cost") or {}),
         account=float(cfg.get("account", 1e6)),
         exchange=dict(cfg.get("exchange") or {}),
-        model=dict(cfg.get("model") or {}),
         data=dict(cfg.get("data") or {}),
         raw=cfg,
         config_hash=config_hash(cfg),
+        points=points,
     )
     if validate:
         validate_spec(spec, registries or default_registries())
@@ -143,6 +169,10 @@ def validate_spec(spec: PoolSpec, registries: dict) -> None:
         registries["filters"].check_params(fname, params, f"{where}.filters.{fname}")
     registries["scorers"].check_params(spec.scorer["name"], spec.scorer_params, f"{where}.scorer")
     registries["strategies"].check_params(spec.strategy["name"], spec.strategy_params, f"{where}.strategy")
+    if spec.points is not None and "conditions" in registries:
+        for g, conds in spec.points.groups().items():
+            for cname, params in conds.items():
+                registries["conditions"].check_params(cname, params or {}, f"{where}.points.{g}.{cname}")
 
 
 def list_pools(pools_dir: Path | None = None, enabled_only: bool = False) -> list[str]:
@@ -164,13 +194,31 @@ def merged_config(name: str, pools_dir: Path | None = None, global_path: Path | 
     cfg = deep_merge(load_global(global_path), read_yaml(defaults_path or paths.POOL_DEFAULTS))
     cfg = deep_merge(cfg, read_yaml(path))
     cfg = {**cfg, **(override or {})}
-    return deep_merge(cfg, parse_sets(sets))
+    return apply_sets(cfg, sets)
+
+
+def apply_sets(cfg: dict, sets: list[str] | None) -> dict:
+    """逐条应用 --set（key.path=value，值按 yaml 解析）：路径上的中间层保留，叶子值**整体替换**——
+    值为字典时不与原字典合并，这样 `points.buy_any={}` 能清空、`points.buy={a: {}}` 能换成只有 a。"""
+    out = copy.deepcopy(cfg)
+    for item in sets or []:
+        if "=" not in item:
+            raise ValueError(f"--set 需为 key.path=value 形式: {item!r}")
+        key_path, raw = item.split("=", 1)
+        keys = key_path.strip().split(".")
+        node = out
+        for k in keys[:-1]:
+            if not isinstance(node.get(k), dict):
+                node[k] = {}
+            node = node[k]
+        node[keys[-1]] = yaml.safe_load(raw)
+    return out
 
 
 def load_pool(name: str, pools_dir: Path | None = None, global_path: Path | None = None,
               defaults_path: Path | None = None, registries: dict | None = None, validate: bool = True,
               override: dict | None = None, sets: list[str] | None = None) -> PoolSpec:
     """override：按顶层键**整段替换**（如 {"scorer": {"name": "momentum"}}）；
-    sets：点路径**深合并**覆盖（如 ["rebalance.hold_thresh=5"]）。用于命令行覆盖与参数网格。"""
+    sets：点路径覆盖，叶子值整体替换（如 ["rebalance.hold_thresh=5"]，见 apply_sets）。用于命令行覆盖与参数网格。"""
     cfg = merged_config(name, pools_dir, global_path, defaults_path, override, sets)
     return build_pool_spec(name, cfg, registries, validate)

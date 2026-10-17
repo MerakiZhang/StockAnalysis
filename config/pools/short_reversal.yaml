@@ -1,0 +1,31 @@
+# 短线反转池：A 股全市场 → 烂股剔除 → 板块权限 → 超跌反转 / 事件买点入池、止损止盈出池，上限 10 只。
+# 逻辑（用户 2026-10-16 选定"反转 + 事件"）：初步事件研究中急跌 / 超跌 / 跌穿布林下轨 / RSI 低位金叉平均超额为正
+#   但逐年不稳，需叠加事件与质量过滤、严格止损，并经网格与滚动验证。
+# 参数 2026-10-17 定稿：买点取"急跌 / RSI 低位金叉"任一，持有 5 天，止损 8%，不设止盈，不择时。
+#   该组在止损 5%/8%/不设、止盈 8%/15%/不设的邻域内年化都在 5%~6%；但持有 20 天转负、2022 年为负，结论偏弱。
+name: short_reversal
+enabled: true
+status: production         # 2026-10-17 保留集评估后定（见 RULES.md）
+universe: all
+benchmark: SH000852        # 中证1000（本地中证全指 SH000985 缺 667 个交易日，不可用）
+strategy:
+  name: signal_points
+scorer:
+  name: multifactor
+  factors: {ret20: -1.0, vol20: -0.5, ep_ttm: 0.5, dividend_yield: 0.5}
+filters:
+  min_amount: {amount: 1.0e+8, window: 20}   # entry：近 20 日日均成交额 ≥ 1 亿
+points:
+  live_start: '2026-10-15'  # 实盘跟踪起始信号日（首期建仓），之后每日选股从这天推演
+  max_positions: 10
+  buy:
+    industry_cheap: {pct: 0.5}       # 至少不贵：避免接垃圾股的反弹
+  buy_any:
+    sharp_drop: {}
+    rsi_golden_low: {level: 30}
+  avoid:
+    forecast_negative: {}
+    holder_reduce: {}
+  stop_loss: 0.08
+  take_profit: null
+  max_hold: 5
