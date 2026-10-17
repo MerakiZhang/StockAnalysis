@@ -1,1 +1,1 @@
-"""特征层：labels（标签口径）/ processors（截面处理器）/ alpha158（特征集与 handler）/ fundamental（补充基本面特征）。"""
+"""特征层：labels（前向收益口径）/ fundamental（基本面）/ risk（烂股判定）/ technical（技术指标）/ events（事件面板）/ regime（择时）/ conditions（选股条件库）。"""
