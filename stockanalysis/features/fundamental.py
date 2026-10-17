@@ -139,21 +139,6 @@ def build_fundamental(codes: list[str], start: str, end: str, close: pd.DataFram
     return {k: out[k].replace([np.inf, -np.inf], np.nan).astype("float32") for k in FEATURES}
 
 
-def fundamental_panel(universe: str, start: str, end: str) -> pd.DataFrame:
-    """供 StaticDataLoader 使用：MultiIndex(datetime, instrument) × ("feature", 名称)，float32。"""
-    from ..data.market import load_wide
-    from ..data.universe import universe_spans
-
-    codes = sorted(universe_spans(universe, start, end))
-    wide = load_wide(codes, f"{START_YEAR}-01-01", end, ("close", "factor"))
-    feats = build_fundamental(codes, start, end, wide["close"], wide["factor"])
-    long = pd.concat({k: v.stack(future_stack=True) for k, v in feats.items()}, axis=1)
-    long.index = long.index.set_names(["datetime", "instrument"])
-    long = long.dropna(how="all").astype("float32")
-    long.columns = pd.MultiIndex.from_product([["feature"], list(long.columns)])
-    return long.sort_index()
-
-
 def panel(ctx: dict) -> dict[str, pd.DataFrame]:
     """ctx 区间与股票上的基本面特征（FEATURES），首次调用时计算并缓存在 ctx["_fund"]。"""
     if "_fund" not in ctx:

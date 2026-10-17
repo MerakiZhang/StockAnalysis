@@ -6,7 +6,6 @@
     xjll/xjll_<period>.parquet        现金流量表（全市场批量，按报告期）
     yysj/yysj_<period>.parquet        定期报告实际披露日（全市场批量，按报告期）
     yjyg/yjyg_<period>.parquet        业绩预告（含公告日期）
-    yjkb/yjkb_<period>.parquet        业绩快报（含公告日期）
     spot/spot_<yyyymmdd>.parquet      当日快照（名称/ST 状态）
 
 防未来函数：业绩报表的`最新公告日期`列是公司最新公告的日期（不是该报告的披露日），不能使用。
@@ -77,7 +76,6 @@ XJLL_COLMAP = {
 }
 
 
-
 YYSJ_COLMAP = {
     "股票代码": "code",
     "股票简称": "name",
@@ -93,19 +91,6 @@ YJYG_COLMAP = {
     "业绩变动幅度": "change_pct",
     "预告类型": "forecast_type",
     "上年同期值": "last_year",
-    "公告日期": "announce_date",
-}
-
-YJKB_COLMAP = {
-    "股票代码": "code",
-    "股票简称": "name",
-    "每股收益": "eps",
-    "营业收入-营业收入": "revenue",
-    "营业收入-同比增长": "revenue_yoy",
-    "净利润-净利润": "netprofit",
-    "净利润-同比增长": "netprofit_yoy",
-    "每股净资产": "bps",
-    "净资产收益率": "roe",
     "公告日期": "announce_date",
 }
 
@@ -245,7 +230,7 @@ def fetch_yysj(period: str, use_cache: bool = True) -> pd.DataFrame:
 
 
 def _fetch_announced(kind: str, fn_name: str, colmap: dict, period: str, use_cache: bool) -> pd.DataFrame:
-    """按报告期抓取、带公告日期的全市场表（业绩预告 / 快报）。"""
+    """按报告期抓取、带公告日期的全市场表（业绩预告）。"""
     import akshare as ak
 
     path = FUND_DIR / kind / f"{kind}_{period}.parquet"
@@ -270,11 +255,6 @@ def _fetch_announced(kind: str, fn_name: str, colmap: dict, period: str, use_cac
 def fetch_yjyg(period: str, use_cache: bool = True) -> pd.DataFrame:
     """业绩预告（全市场）。一只股票可能有多行（不同预测指标）。"""
     return _fetch_announced("yjyg", "stock_yjyg_em", YJYG_COLMAP, period, use_cache)
-
-
-def fetch_yjkb(period: str, use_cache: bool = True) -> pd.DataFrame:
-    """业绩快报（全市场）。"""
-    return _fetch_announced("yjkb", "stock_yjkb_em", YJKB_COLMAP, period, use_cache)
 
 
 def _load_periods(kind: str, start_year: int) -> pd.DataFrame:
@@ -326,11 +306,6 @@ def load_yjyg_all(start_year: int = 2012) -> pd.DataFrame:
     return _with_announce_visibility(_load_periods("yjyg", start_year))
 
 
-def load_yjkb_all(start_year: int = 2012) -> pd.DataFrame:
-    """业绩快报长表；可见日 = 公告日次日。"""
-    return _with_announce_visibility(_load_periods("yjkb", start_year))
-
-
 def fetch_spot(use_cache: bool = True) -> pd.DataFrame:
     """A股当日快照：code/name/is_st。当日缓存。"""
     import akshare as ak
@@ -361,7 +336,7 @@ def update_all(start_year: int = 2012, log=print) -> None:
     """抓取 / 补齐 start_year 起各报告期的业绩报表、分红送配、现金流量表缓存（已缓存的跳过）。"""
     periods = report_periods(start_year)
     for label, fetch in (("业绩报表 yjbb", fetch_yjbb), ("分红送配 fhps", fetch_fhps), ("现金流量表 xjll", fetch_xjll),
-                         ("实际披露日 yysj", fetch_yysj), ("业绩预告 yjyg", fetch_yjyg), ("业绩快报 yjkb", fetch_yjkb)):
+                         ("实际披露日 yysj", fetch_yysj), ("业绩预告 yjyg", fetch_yjyg)):
         log(f"[{label}] {len(periods)} 个报告期")
         for p in periods:
             try:

@@ -11,8 +11,6 @@ import importlib
 COMMANDS = {  # 命令名 -> 模块名
     "select": "select",
     "backtest": "backtest",
-    "grid": "grid",
-    "factors": "factors",
     "quality": "quality",
     "event-study": "event_study",
     "points-grid": "points_grid",

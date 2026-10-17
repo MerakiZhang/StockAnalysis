@@ -57,7 +57,7 @@ python -X utf8 -m stockanalysis event-study --pool long                # 条件�
 python -X utf8 -m stockanalysis points-grid --pool long --starts 6 \
     --vary "points.stop_loss=0.05,0.08,null" --vary "points.max_hold=5,10"   # 买卖点参数网格 + 滚动验证
 python -X utf8 -m stockanalysis backtest --pool all                    # 组合回测
-python -X utf8 -m stockanalysis check --pool all                       # 选股与回测同口径检查
+python -X utf8 -m stockanalysis check --pool all                       # 防未来检查（数据截止到 T 与延续之后结果须一致）
 python -X utf8 -m pytest tests -q                                      # 单元测试
 # 多数命令可用 --set 点路径覆盖配置（如 --set points.stop_loss=0.05），--tag 给报告加后缀避免覆盖
 ```
@@ -67,7 +67,7 @@ python -X utf8 -m pytest tests -q                                      # 单元�
 ```
 config/global.yaml          系统级：资金、账户板块权限、成本、撮合、回测窗口、数据同步
 config/pool_defaults.yaml   所有股池共用的规则（烂股剔除、准入）——改一处，全部池生效
-config/pools/<name>.yaml    单个股池：基准、优先分、买卖点（points 段）（_template.yaml 为模板）
+config/pools/<name>.yaml    单个股池：基准、优先分、买卖点（points 段）；加池时复制一个现有池改名
 stockanalysis/              代码包：config / data / features / models / selection / backtest / research / cli
 tests/                      单元测试
 data/pool/<name>/           股池输出（入库，实盘跟踪记录）

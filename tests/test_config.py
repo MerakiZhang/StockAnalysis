@@ -2,7 +2,7 @@
 import pytest
 import yaml
 
-from stockanalysis.config import deep_merge, list_pools, load_pool, merged_config, parse_sets
+from stockanalysis.config import deep_merge, list_pools, load_pool, parse_sets
 from stockanalysis.registry import Registry
 
 
@@ -28,21 +28,20 @@ def fake_registries():
         def __init__(self, window=20):
             ...
 
-    strategies = Registry("strategy", skip=2)
+    conditions = Registry("condition", skip=1)
 
-    @strategies.register("topk")
-    def topk(signal, rebalance, slippage_bps=0):
+    @conditions.register("cheap")
+    def cheap(ctx, pct=0.7):
         ...
 
-    return {"filters": filters, "scorers": scorers, "strategies": strategies}
+    return {"filters": filters, "scorers": scorers, "conditions": conditions}
 
 
 GLOBAL = {"account": 1e6, "cost": {"commission": 0.00025, "slippage": 0.001},
           "backtest": {"start": "2018-01-01", "in_sample_end": "2022-12-31"}}
-DEFAULTS = {"sizing": {"top_pct": 0.01, "min_topk": 5}, "rebalance": {"freq": "daily", "n_drop": 1, "hold_thresh": 10},
-            "scorer": {"name": "momentum"}, "strategy": {"name": "topk"},
-            "filters": {"in_universe": {}, "boards": {"boards": ["main"]}}}
-POOL = {"name": "p1", "universe": "csi300", "benchmark": "SH000300", "cost": {"slippage": 0.002}}
+DEFAULTS = {"scorer": {"name": "momentum"}, "filters": {"in_universe": {}, "boards": {"boards": ["main"]}}}
+POOL = {"name": "p1", "universe": "all", "benchmark": "SH000906", "cost": {"slippage": 0.002},
+        "points": {"max_positions": 10, "buy": {"cheap": {}}, "stop_loss": 0.08}}
 
 
 @pytest.fixture
@@ -71,18 +70,18 @@ def test_deep_merge_overrides_nested_only():
 def test_merge_chain_global_defaults_pool(cfg_dir):
     spec = load(cfg_dir)
     assert spec.cost == {"commission": 0.00025, "slippage": 0.002}      # 池覆盖 global
-    assert spec.rebalance.hold_thresh == 10 and spec.rebalance.freq == "daily"   # 来自 pool_defaults
-    assert spec.sizing.min_topk == 5 and spec.sizing.topk is None
+    assert spec.scorer == {"name": "momentum"}                             # 来自 pool_defaults
+    assert spec.points.max_positions == 10 and spec.points.freq == "daily" and spec.points.max_hold is None
     assert spec.enabled and spec.status == "observe"
     assert list(spec.filters) == ["in_universe", "boards"]
 
 
 def test_pool_overrides_one_rule_and_adds_filter(cfg_dir):
     _, write_pool = cfg_dir
-    write_pool("p2", {**POOL, "name": "p2", "rebalance": {"hold_thresh": 5},
+    write_pool("p2", {**POOL, "name": "p2", "cost": {"commission": 0.0003},
                       "filters": {"min_amount": {"amount": 1e8}}})
     spec = load(cfg_dir, "p2")
-    assert spec.rebalance.hold_thresh == 5 and spec.rebalance.n_drop == 1   # 只改一项，其余继承
+    assert spec.cost == {"commission": 0.0003, "slippage": 0.001}       # 只改一项，其余继承
     assert list(spec.filters) == ["in_universe", "boards", "min_amount"]
 
 
@@ -100,17 +99,19 @@ def test_mandatory_filter_cannot_be_disabled(cfg_dir):
 
 
 def test_sets_and_override(cfg_dir):
-    spec = load(cfg_dir, sets=["rebalance.hold_thresh=3", "sizing.topk=8"],
+    spec = load(cfg_dir, sets=["points.max_hold=3", "points.buy={cheap: {pct: 0.8}}"],
                 override={"scorer": {"name": "momentum", "window": 5}})
-    assert spec.rebalance.hold_thresh == 3 and spec.sizing.topk == 8
+    assert spec.points.max_hold == 3 and spec.points.buy == {"cheap": {"pct": 0.8}}
+    assert spec.points.stop_loss == 0.08                                 # 其余 points 项保留
     assert spec.scorer == {"name": "momentum", "window": 5}
 
 
 @pytest.mark.parametrize("extra, match", [
-    ({"top_pct": 0.02}, "未知配置项"),                          # 旧版顶层写法
-    ({"sizing": {"top_pctt": 0.02}}, "top_pctt"),
-    ({"rebalance": {"freq": "hourly"}}, "freq"),
-    ({"signal": {"ema": 5}}, "ema"),
+    ({"top_pct": 0.02}, "未知配置项"),
+    ({"rebalance": {"hold_thresh": 5}}, "未知配置项"),             # 旧版 topk 换仓写法已删除
+    ({"points": {"buy": {"cheap": {}}, "stop_los": 0.05}}, "stop_los"),
+    ({"points": {"buy": {"cheap": {}}, "freq": "hourly"}}, "freq"),
+    ({"points": {}}, "买点"),
     ({"status": "live"}, "status"),
 ])
 def test_invalid_config_rejected(cfg_dir, extra, match):
@@ -125,7 +126,8 @@ def test_invalid_config_rejected(cfg_dir, extra, match):
     ({"filters": {"min_amount": {"amount": 1, "windw": 5}}}, "windw"),
     ({"filters": {"min_amount": {"window": 5}}}, "amount"),   # 缺必填参数（boards: {} 会继承默认参数，不算缺）
     ({"scorer": {"name": "nope"}}, "nope"),
-    ({"strategy": {"name": "topk", "foo": 2}}, "foo"),
+    ({"points": {"buy": {"nope_cond": {}}}}, "nope_cond"),
+    ({"points": {"buy": {"cheap": {"pctt": 1}}}}, "pctt"),
 ])
 def test_registry_validation(cfg_dir, extra, match):
     _, write_pool = cfg_dir
@@ -142,7 +144,7 @@ def test_name_must_match_file(cfg_dir):
 
 
 def test_config_hash_changes_with_params(cfg_dir):
-    assert load(cfg_dir).config_hash != load(cfg_dir, sets=["sizing.min_topk=6"]).config_hash
+    assert load(cfg_dir).config_hash != load(cfg_dir, sets=["points.stop_loss=0.05"]).config_hash
 
 
 def test_list_pools_enabled_and_templates(cfg_dir):
@@ -154,9 +156,8 @@ def test_list_pools_enabled_and_templates(cfg_dir):
 
 
 def test_parse_sets_nested_and_typed():
-    out = parse_sets(["points.atr_stop.k=2.5", "rebalance.hold_thresh=10", "signal.score_ema=null"])
-    assert out == {"points": {"atr_stop": {"k": 2.5}}, "rebalance": {"hold_thresh": 10},
-                   "signal": {"score_ema": None}}
+    out = parse_sets(["points.atr_stop.k=2.5", "points.max_hold=10", "points.take_profit=null"])
+    assert out == {"points": {"atr_stop": {"k": 2.5}, "max_hold": 10, "take_profit": None}}
 
 
 # ---------------------------------------------------------------- 仓库内的真实配置
@@ -181,7 +182,7 @@ def test_repo_pool_yaml_only_has_overrides():
 
     for name in list_pools():
         raw = yaml.safe_load((POOLS_DIR / f"{name}.yaml").read_text(encoding="utf-8"))
-        assert not {"sizing", "rebalance"} & set(raw), name
+        assert not set(raw.get("filters") or {}) & {"in_universe", "not_st", "boards"}, name
 
 
 def test_apply_sets_replaces_leaf_dicts():

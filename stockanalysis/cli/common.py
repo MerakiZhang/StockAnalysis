@@ -4,10 +4,6 @@ from __future__ import annotations
 import argparse
 
 
-def int_list(text: str) -> list[int]:
-    return [int(x) for x in str(text).split(",") if x.strip()]
-
-
 def str_list(text: str) -> list[str]:
     return [x.strip() for x in str(text).split(",") if x.strip()]
 
@@ -33,7 +29,7 @@ def resolve_pools(text: str) -> list[str]:
 
 def add_set_arg(p: argparse.ArgumentParser) -> None:
     p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                   help="点路径覆盖池配置，可重复，如 --set rebalance.hold_thresh=5 --set points.stop_loss=0.08")
+                   help="点路径覆盖池配置，可重复，如 --set points.stop_loss=0.08 --set points.max_hold=10")
 
 
 def add_holdout_arg(p: argparse.ArgumentParser) -> None:

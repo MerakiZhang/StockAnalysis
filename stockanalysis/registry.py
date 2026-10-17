@@ -1,6 +1,6 @@
 """通用注册表：装饰器注册 + 参数名校验。
 
-过滤规则（FILTERS）、打分器（SCORERS）、回测策略（STRATEGIES）共用本类。
+过滤规则（FILTERS）、打分器（SCORERS）、选股条件（CONDITIONS）共用本类。
 新增一项 = 写函数/类 + 装饰器一行；池 yaml 中按名字引用，参数按关键字传入。
 
     FILTERS = Registry("filter", skip=1)       # 函数首参 ctx 不由 yaml 提供

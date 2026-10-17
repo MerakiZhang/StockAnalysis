@@ -1,1 +1,1 @@
-"""研究层（只在研发区调参，保留集须显式 --show-holdout）：metrics（指标）/ reports（报告）/ compare（模型对比）/ grid（参数网格）/ rounds（树数选择）/ consistency（同口径检查）/ factor_check（特征体检）。"""
+"""研究层（只在研发区调参，保留集须显式 --show-holdout）：event_study（条件事件研究）/ points_grid（买卖点参数网格）/ quality_check（烂股剔除体检）/ consistency（防未来检查）/ metrics（指标）/ reports（报告）。"""

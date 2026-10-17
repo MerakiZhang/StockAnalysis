@@ -1,6 +1,6 @@
 """update-data：抓取 / 补齐本地补充数据缓存（行情由 sync 命令管理）。
 
-    fundamental   akshare 业绩报表 / 分红 / 现金流 / 实际披露日 / 业绩预告 / 业绩快报（按报告期）
+    fundamental   akshare 业绩报表 / 分红 / 现金流 / 实际披露日 / 业绩预告（按报告期）
     events        akshare 两融 / 龙虎榜 / 股东户数 / 解禁 / 增减持 / 回购 / 公告（--events 选子集）
     baostock      baostock 逐日 ST / 停牌 / 估值 / 换手率（逐股，首次全量约数小时）+ 行业快照
     market_temp   长桥 CLI 市场温度历史（2018 起）

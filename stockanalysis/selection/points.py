@@ -76,12 +76,10 @@ def build_point_signal(pool, start: str, end: str, ctx: dict | None = None, with
     from ..features.fundamental import industry_map
     from ..models.scorers import make_scorer
     from .filters import limit_hits
-    from .schedule import is_signal_day, signal_mask
+    from .schedule import is_signal_day
     from .signal import build_ctx, combine_masks
 
     spec = pool.points
-    if spec is None:
-        raise ValueError(f"池 {pool.name} 不是买卖点池（strategy.name 须为 signal_points）")
     scorer = make_scorer(pool)
     if ctx is None:
         warmup = max(WARMUP_DAYS, int(getattr(scorer, "warmup_days", 0)))

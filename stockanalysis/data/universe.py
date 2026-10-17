@@ -1,4 +1,4 @@
-"""指数成分与个股参考数据（来自 qlib instruments 文件）：板块判定、个股识别、上市日、成分时点面板。
+"""股票范围与个股参考数据（来自 qlib instruments 文件）：板块判定、个股识别、上市日、在市时点面板。
 
 过滤规则见 selection/filters.py。
 """
@@ -63,10 +63,7 @@ def is_stock(code: str) -> bool:
 
 # ------------------------------------------------------------------ 成分时点
 def universe_spans(universe: str, start: str, end: str) -> dict[str, list[tuple[pd.Timestamp, pd.Timestamp]]]:
-    """指数成分区间 {code: [(纳入日, 调出日), ...]}，只含 [start, end] 内有交集的个股。
-
-    qlib 成分文件含历史成分（含已退市股票），同一股票可能多次进出指数。
-    """
+    """qlib 股票范围（如 all = 全市场）的在市区间 {code: [(起, 止), ...]}，只含 [start, end] 内有交集的个股（含已退市）。"""
     from qlib.data import D
 
     from .market import init_qlib
@@ -81,7 +78,7 @@ def membership_panel(
     dates: pd.DatetimeIndex,
     codes: list[str] | None = None,
 ) -> pd.DataFrame:
-    """date×code 布尔面板：当日是否为指数成分（防"用未来成分选股"的前视偏差）。"""
+    """date×code 布尔面板：当日是否在范围内（防"用未来才上市 / 已退市的股票选股"的前视偏差）。"""
     codes = list(codes) if codes is not None else sorted(spans)
     dates = pd.DatetimeIndex(dates)
     out = pd.DataFrame(False, index=dates, columns=codes)

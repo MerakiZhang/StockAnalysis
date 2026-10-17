@@ -6,7 +6,7 @@
 - 加股池 = 在 config/pools/ 加一个 yaml（只写与默认不同的项）；`enabled: false` 暂停而不删除。
 - 改所有池的规则 = 改 pool_defaults.yaml；只改某池 = 在该池 yaml 覆盖。
 - 关闭某池的默认过滤规则 = 该池 yaml 写 `filters: {规则名: false}`（in_universe 不可关闭）。
-加载即校验：未知顶层键 / 分段键、未注册的规则 / 打分器 / 策略、与签名不符的参数名，都会直接报错。
+加载即校验：未知顶层键 / 分段键、未注册的规则 / 打分器 / 选股条件、与签名不符的参数名，都会直接报错。
 """
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ from pathlib import Path
 import yaml
 
 from .. import paths
-from .schema import (DEAL_PRICES, FILL_MODES, MANDATORY_FILTERS, POINTS_STRATEGY, REBALANCE_FREQS, STATUSES, TOP_LEVEL_KEYS,
-                     PointsSpec, PoolSpec, RebalanceRule, Sizing, section)
+from .schema import (DEAL_PRICES, FILL_MODES, FREQS, MANDATORY_FILTERS, STATUSES, TOP_LEVEL_KEYS, PointsSpec, PoolSpec,
+                     section)
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -46,7 +46,7 @@ def load_global(path: Path | None = None) -> dict:
 
 
 def parse_sets(sets: list[str] | None) -> dict:
-    """["points.stop_loss=0.05", "rebalance.hold_thresh=10"] -> 嵌套 dict（值按 yaml 解析）。"""
+    """["points.stop_loss=0.05", "points.buy={a: {}}"] -> 嵌套 dict（值按 yaml 解析）。"""
     out: dict = {}
     for item in sets or []:
         if "=" not in item:
@@ -67,12 +67,11 @@ def config_hash(cfg: dict) -> str:
 
 def default_registries() -> dict:
     # 延迟导入：注册表模块依赖 qlib/pandas，仅在校验时加载
-    from ..backtest.strategies import STRATEGIES
     from ..features.conditions import CONDITIONS
     from ..models.scorers import SCORERS
     from ..selection.filters import FILTERS
 
-    return {"filters": FILTERS, "scorers": SCORERS, "strategies": STRATEGIES, "conditions": CONDITIONS}
+    return {"filters": FILTERS, "scorers": SCORERS, "conditions": CONDITIONS}
 
 
 def _build_points(name: str, raw: dict | None) -> PointsSpec:
@@ -80,8 +79,8 @@ def _build_points(name: str, raw: dict | None) -> PointsSpec:
     for g, conds in p.groups().items():
         if not isinstance(conds, dict):
             raise TypeError(f"池 {name}.points.{g} 须为 {{条件名: 参数}}")
-    if p.freq not in REBALANCE_FREQS:
-        raise ValueError(f"池 '{name}'：points.freq 须为 {REBALANCE_FREQS}")
+    if p.freq not in FREQS:
+        raise ValueError(f"池 '{name}'：points.freq 须为 {FREQS}")
     if p.deal_price not in DEAL_PRICES:
         raise ValueError(f"池 '{name}'：points.deal_price 须为 {DEAL_PRICES}")
     if p.fill not in FILL_MODES:
@@ -114,28 +113,14 @@ def build_pool_spec(name: str, cfg: dict, registries: dict | None = None, valida
     unknown = set(cfg) - set(TOP_LEVEL_KEYS)
     if unknown:
         raise KeyError(f"池 '{name}' 含未知配置项 {sorted(unknown)}，可用: {list(TOP_LEVEL_KEYS)}")
-    for key in ("universe", "benchmark", "scorer", "strategy"):
+    for key in ("universe", "benchmark", "scorer", "points"):
         if key not in cfg:
             raise KeyError(f"池 '{name}' 缺少必填项 {key}")
     if cfg.get("status", "observe") not in STATUSES:
         raise ValueError(f"池 '{name}'：status 须为 {STATUSES}")
 
-    sizing = section(Sizing, cfg.get("sizing"), f"池 {name}.sizing")
-    sizing = Sizing(top_pct=float(sizing.top_pct), min_topk=int(sizing.min_topk),
-                    topk=None if sizing.topk is None else int(sizing.topk))
-    rebalance = section(RebalanceRule, cfg.get("rebalance"), f"池 {name}.rebalance")
-    if rebalance.freq not in REBALANCE_FREQS:
-        raise ValueError(f"池 '{name}'：rebalance.freq 须为 {REBALANCE_FREQS}")
-    rebalance = RebalanceRule(freq=rebalance.freq, n_drop=int(rebalance.n_drop), hold_thresh=int(rebalance.hold_thresh))
-    signal = dict(cfg.get("signal") or {})
-    if set(signal) - {"score_ema"}:
-        raise KeyError(f"池 {name}.signal 含未知项 {sorted(set(signal) - {'score_ema'})}")
     cfg["filters"] = _resolve_filters(name, cfg.get("filters"), cfg.get("account_boards"))
-    points = None
-    if cfg["strategy"].get("name") == POINTS_STRATEGY:
-        points = _build_points(name, cfg.get("points"))
-    elif cfg.get("points"):
-        raise ValueError(f"池 '{name}'：只有 strategy.name={POINTS_STRATEGY} 的池才能写 points")
+    points = _build_points(name, cfg["points"])
 
     spec = PoolSpec(
         name=name,
@@ -143,16 +128,11 @@ def build_pool_spec(name: str, cfg: dict, registries: dict | None = None, valida
         status=cfg.get("status", "observe"),
         universe=cfg["universe"],
         benchmark=cfg["benchmark"],
-        sizing=sizing,
-        rebalance=rebalance,
-        score_ema=None if signal.get("score_ema") in (None, 0) else int(signal["score_ema"]),
         scorer=dict(cfg["scorer"]),
-        strategy=dict(cfg["strategy"]),
         filters=cfg["filters"],
         backtest=dict(cfg.get("backtest") or {}),
         cost=dict(cfg.get("cost") or {}),
         account=float(cfg.get("account", 1e6)),
-        exchange=dict(cfg.get("exchange") or {}),
         data=dict(cfg.get("data") or {}),
         raw=cfg,
         config_hash=config_hash(cfg),
@@ -168,8 +148,7 @@ def validate_spec(spec: PoolSpec, registries: dict) -> None:
     for fname, params in spec.filters.items():
         registries["filters"].check_params(fname, params, f"{where}.filters.{fname}")
     registries["scorers"].check_params(spec.scorer["name"], spec.scorer_params, f"{where}.scorer")
-    registries["strategies"].check_params(spec.strategy["name"], spec.strategy_params, f"{where}.strategy")
-    if spec.points is not None and "conditions" in registries:
+    if "conditions" in registries:
         for g, conds in spec.points.groups().items():
             for cname, params in conds.items():
                 registries["conditions"].check_params(cname, params or {}, f"{where}.points.{g}.{cname}")
@@ -219,6 +198,6 @@ def load_pool(name: str, pools_dir: Path | None = None, global_path: Path | None
               defaults_path: Path | None = None, registries: dict | None = None, validate: bool = True,
               override: dict | None = None, sets: list[str] | None = None) -> PoolSpec:
     """override：按顶层键**整段替换**（如 {"scorer": {"name": "momentum"}}）；
-    sets：点路径覆盖，叶子值整体替换（如 ["rebalance.hold_thresh=5"]，见 apply_sets）。用于命令行覆盖与参数网格。"""
+    sets：点路径覆盖，叶子值整体替换（如 ["points.max_hold=5"]，见 apply_sets）。用于命令行覆盖与参数网格。"""
     cfg = merged_config(name, pools_dir, global_path, defaults_path, override, sets)
     return build_pool_spec(name, cfg, registries, validate)

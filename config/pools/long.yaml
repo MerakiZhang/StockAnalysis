@@ -9,8 +9,6 @@ enabled: true
 status: production         # 2026-10-17 保留集评估后定（见 RULES.md）
 universe: all
 benchmark: SH000906        # 中证800（本地中证全指 SH000985 缺 667 个交易日，不可用）
-strategy:
-  name: signal_points
 scorer:                    # 优先分：IC 逐年稳定的因子（股息 / 分红连续 / EP / 现金流质量为正，波动 / 涨停次数 / 近期涨幅为负）
   name: multifactor
   factors: {dividend_yield: 1.0, dividend_continuity: 1.0, ep_ttm: 1.0, ocf_to_netprofit: 0.5,

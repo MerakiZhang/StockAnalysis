@@ -1,13 +1,11 @@
-"""过滤规则面板、成分时点、池容。全部用合成小面板，不依赖 qlib 数据。"""
+"""过滤规则面板、在市时点、exit / entry 合成。全部用合成小面板，不依赖 qlib 数据。"""
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from stockanalysis.selection import filters as F
 from stockanalysis.selection.signal import combine_masks
-from stockanalysis.selection.sizing import calc_topk
 from stockanalysis.data.universe import membership_panel
 
 DATES = pd.bdate_range("2020-08-17", periods=10)
@@ -119,10 +117,3 @@ def test_combine_masks_splits_by_scope():
     assert not exit_ok["SZ000001"].any() and exit_ok["SZ300001"].all()
     assert not entry_ok["SZ300001"].any() and entry_ok["SZ000001"].all()
 
-
-@pytest.mark.parametrize("n,pct,mn,fixed,want", [
-    (240, 0.01, 5, None, 5), (700, 0.01, 5, None, 7), (701, 0.01, 5, None, 8),
-    (1000, 0.01, 5, None, 10), (0, 0.01, 5, None, 5), (700, 0.01, 5, 3, 3),
-])
-def test_calc_topk(n, pct, mn, fixed, want):
-    assert calc_topk(n, pct, mn, fixed) == want

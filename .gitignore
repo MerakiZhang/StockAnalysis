@@ -30,7 +30,7 @@ data/reports/
 qlib_data/
 *.qlib
 
-# 注意：data/pool/ 是股池交付物（月度/周度 CSV），需要入库，不要忽略
+# 注意：data/pool/ 是股池交付物（每日 CSV + 简报），需要入库，不要忽略
 
 # ===== 运行产物 =====
 *.log
@@ -49,6 +49,3 @@ tempCodeRunnerFile.py
 Thumbs.db
 desktop.ini
 
-# 模型产物（滚动训练预测 / 模型 / qlib recorder，可重训生成）
-data/models/
-data/mlruns/

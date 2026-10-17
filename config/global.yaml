@@ -1,4 +1,4 @@
-# 系统级设置（资金、账户板块权限、成本、撮合、回测窗口、数据同步）。
+# 系统级设置（资金、账户板块权限、成本、回测窗口、数据同步）。
 # 合并顺序：本文件 → config/pool_defaults.yaml（选股规则）→ config/pools/<name>.yaml，后者覆盖前者。
 # qlib 数据目录默认 ~/.qlib/qlib_data/cn_data，可用环境变量 QLIB_DATA 覆盖。
 
@@ -14,21 +14,16 @@ data:
   auto_sync: true           # 选股/回测启动时比对 GitHub 最新 release，不一致则更新
   proxy: null               # 如 http://127.0.0.1:7890（国内访问 GitHub 不稳定时）
 
-# ---------- 交易成本 ----------
+# ---------- 交易成本（backtest/points_engine.py）----------
 cost:
   commission: 0.00025       # 佣金双边万2.5
   stamp_tax: 0.0005         # 印花税卖出千0.5
   slippage: 0.001           # 滑点千1（池内可覆盖）
   min_cost: 5               # 单笔最低佣金（元）
 
-# ---------- 撮合约束 ----------
-exchange:
-  deal_price: close
-  volume_limit: 0.1         # 单票单日成交不超过当日成交量的 10%（null = 不限制）
-
 # ---------- 回测窗口 ----------
 backtest:
   start: '2018-01-01'
   end: null                 # null = 数据最新交易日
-  in_sample_end: '2022-12-31'   # ≤ 此日为研发区（调参/选模型），之后为保留集
+  in_sample_end: '2022-12-31'   # ≤ 此日为研发区（调参），之后为保留集
 

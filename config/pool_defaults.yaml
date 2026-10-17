@@ -1,34 +1,16 @@
 # 所有股池共用的选股规则。改这里 = 改所有池；单个池在 config/pools/<name>.yaml 覆盖同名项。
 # 规则来龙去脉与评估结果见 RULES.md。
 
-# ---------- 池容 ----------
-sizing:
-  top_pct: 0.01             # 池容 = max(min_topk, ceil(top_pct × 当日准入通过只数))
-  min_topk: 5
-  topk: null                # 指定整数则固定池容，优先于 1% 规则
-
-# ---------- 换仓（选股与回测共用 selection/rebalance.py）----------
-rebalance:
-  freq: daily               # daily / weekly / monthly；后两者只在每周 / 每月最后一个交易日换仓，其余日子沿用上期股池
-  n_drop: 1                 # 每次最多因排名调出只数（被持有规则强制调出的不计入）
-  hold_thresh: 10           # 持有不足 N 个交易日不因排名调出（研发区换手网格：三池平均最优）
-
-# ---------- 打分 ----------
-signal:
-  score_ema: null           # 分数 EMA 平滑跨度；研发区网格中各池均变差，不启用
+# ---------- 优先分（池 yaml 覆盖；规则池用 multifactor）----------
 scorer:
-  name: momentum            # 池 yaml 覆盖；规则池用 multifactor（优先分）；momentum / random 为冒烟用
-
-# ---------- 回测策略 ----------
-strategy:
-  name: entry_aware_topk_dropout
+  name: random              # 占位：random / momentum 只用于冒烟或作为优先分对照
 
 # ---------- 过滤规则 ----------
 # exit = 持有规则（不通过即调出）；entry = 准入规则（只限制新买入）
 # 单个池关闭某条：在池 yaml 写 filters: {规则名: false}；in_universe 不可关闭
 filters:
-  in_universe: {}                    # exit：当日为指数成分 / 在市（强制）
-  # --- 烂股剔除（exit：两池共用，已持有的也强制调出；口径见 features/risk.py）---
+  in_universe: {}                    # exit：当日在市（强制）
+  # --- 烂股剔除（exit：各池共用，已持有的也强制卖出；口径见 features/risk.py）---
   exclude_st: {}                     # 当前 ST 快照（只作用于最新一天）
   not_st: {}                         # 历史 ST（baostock isST，缺数据时按涨跌停幅度近似）
   min_price: {price: 2.0}            # 不复权价 < 2 元（面值退市风险）

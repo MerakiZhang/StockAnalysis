@@ -50,7 +50,7 @@ def _by_column(ctx: dict, flags: dict[str, bool] | pd.Series) -> pd.DataFrame:
 # ------------------------------------------------------------------ exit
 @FILTERS.register("in_universe", scope="exit")
 def in_universe(ctx: dict) -> pd.DataFrame:
-    """当日为指数成分（强制规则）。"""
+    """当日在市（强制规则）。"""
     b = _base(ctx)
     return ctx["membership"].reindex(index=b.index, columns=b.columns).fillna(False).astype(bool)
 

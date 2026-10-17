@@ -8,8 +8,6 @@ enabled: true
 status: observe         # 2026-10-17 保留集评估后定（见 RULES.md）
 universe: all
 benchmark: SH000852        # 中证1000
-strategy:
-  name: signal_points
 scorer:
   name: multifactor
   factors: {amt_ratio5: 1.0, ret20: 0.5, roe: 0.5}

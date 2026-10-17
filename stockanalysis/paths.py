@@ -25,8 +25,6 @@ POOLS_DIR = CONFIG_DIR / "pools"
 
 DATA_DIR = PROJECT_ROOT / "data"
 POOL_OUTPUT_DIR = DATA_DIR / "pool"
-MODEL_DIR = DATA_DIR / "models"
-MLRUNS_DIR = DATA_DIR / "mlruns"
 REPORT_DIR = DATA_DIR / "reports"
 FUND_DIR = DATA_DIR / "fundamental"
 EVENTS_DIR = DATA_DIR / "events"

@@ -4,7 +4,7 @@
 
 | 需求 | 操作 | 改代码？ |
 |------|------|---------|
-| 增加股池 | 复制 `config/pools/_template.yaml` 或现有池为 `config/pools/<名>.yaml`，`name` 改成同名，写 universe / benchmark / scorer / points | 否 |
+| 增加股池 | 复制一个现有池为 `config/pools/<名>.yaml`，`name` 改成同名，改 benchmark / scorer / points | 否 |
 | 暂停 / 恢复股池 | 该池 yaml `enabled: false / true`（`--pool all` 跳过暂停的池） | 否 |
 | 改某池买卖点 | 池 yaml 的 `points` 段（buy / buy_any / avoid / sell + stop_loss / take_profit / trailing_stop / max_hold / rank_exit 等），加载时校验条件名与参数 | 否 |
 | 改优先分 | 池 yaml 的 `scorer.factors`（因子名 → 权重，负权重 = 越小越好） | 否 |
@@ -29,7 +29,7 @@ config/global.yaml → config/pool_defaults.yaml → config/pools/<name>.yaml �
 ```
 config/
   global.yaml            系统级：资金、账户板块权限、成本、撮合、回测窗口、数据同步
-  pool_defaults.yaml     所有池共用：烂股剔除 / 准入 filters（另有 topk 换仓路径的 sizing / rebalance 默认值）
+  pool_defaults.yaml     所有池共用：烂股剔除 / 准入 filters、占位优先分
   pools/<name>.yaml      单个池：name / enabled / status / universe / benchmark / scorer / points（_ 开头为模板，不加载）
 stockanalysis/
   __main__.py            python -X utf8 -m stockanalysis <命令>
@@ -58,27 +58,26 @@ stockanalysis/
              points.py   build_point_signal → PointSignal（买点 / 卖点 / 可成交 / 优先分 / 择时面板）
              positions.py    simulate()：买卖点状态机（选股与回测共用）
              points_daily.py 买卖点池每日选股（持仓、卖出线、次日计划、接近买点、长桥体检）
-             signal.py   行情上下文 + 过滤面板（两条路径共用）；topk 路径的 build_signal
-             sizing.py rebalance.py selector.py   topk 换仓路径（池容、换仓规则、选股）
+             signal.py   行情上下文 + 过滤面板（exit / entry 合成）
              schedule.py     信号日日程（daily / weekly / monthly）
              store.py        股池 CSV 与简报读写
              daily.py        每日选股流程（按池类型分流）
   backtest/  points_engine.py  买卖点池自记账回测（成本、涨跌停、停牌顺延、逐日自检）
-             engine.py strategies.py   qlib 回测（topk 路径）
              metrics.py      区间指标（复利口径）与区间切分
              runner.py       回测区间（保留集保护）与单池回测流程（按池类型分流）
   research/  event_study.py  条件事件研究（5 / 20 / 60 日超额、胜率、逐年）
              points_grid.py  买卖点参数网格 + 多起点合成 + 滚动验证
              quality_check.py  烂股剔除效果体检
-             metrics.py reports.py grid.py consistency.py factor_check.py
+             consistency.py  防未来检查（前缀一致性）
+             metrics.py reports.py
   cli/       common.py   公共参数（--pool / --set / --show-holdout / --tag / 数据同步）
-             select backtest grid factors quality event_study points_grid check sync update_data
+             select backtest quality event_study points_grid check sync update_data
 tests/       与包结构对应的单元测试
 data/        pool/（入库）· reports/ fundamental/ events/ baostock/（不入库）
 ```
 
 依赖方向：`cli → research → backtest → selection → models → features → data → paths / registry / runtime`，下层不依赖上层。
-`config` 被各层使用；唯一的反向引用是 `config/loader.py` 校验时延迟导入注册表（FILTERS / SCORERS / STRATEGIES / CONDITIONS），
+`config` 被各层使用；唯一的反向引用是 `config/loader.py` 校验时延迟导入注册表（FILTERS / SCORERS / CONDITIONS），
 以便在加载配置时就报出未注册的名字和参数。
 
 ## 数据流（买卖点池）
@@ -100,8 +99,8 @@ selection/filters.py（exit / entry）   features/conditions.py（CONDITIONS） 
 ```
 
 买卖点池的回测不走 qlib 策略：同一个纯函数模拟器同时用于每日选股和回测，选股结果按构造等于回测在 T 日的持仓；
-记账的报告列与 qlib report 相同，沿用 `segment_metrics`。`strategy.name` 不是 `signal_points` 的池走原 topk 路径
-（`build_signal` + `rebalance()` + qlib 回测），目前没有池使用。
+记账的报告列与 qlib report 口径相同，沿用 `segment_metrics`。旧版 topk 换仓路径（池容 / 换仓规则 / qlib 回测策略）
+已于 2026-10-17 删除，需要时见 git 历史。
 
 ## 防未来函数约定
 
@@ -132,10 +131,10 @@ selection/filters.py（exit / entry）   features/conditions.py（CONDITIONS） 
 | 问题 | 后果 | 修复 |
 |------|------|------|
 | 成分股取区间并集，未按当日成分屏蔽 | 用"未来才纳入"的股票选股（前视偏差） | `in_universe` 强制规则（时点面板） |
-| 选股与回测两套过滤、两套换仓逻辑 | 选股结果与回测持仓不一致 | 选股与回测共用同一实现（topk：`rebalance()`；买卖点：`simulate()`），`check` 逐日验证 |
+| 选股与回测两套过滤、两套换仓逻辑 | 选股结果与回测持仓不一致 | 选股与回测共用同一实现 `simulate()`，`check` 做前缀一致性（防未来）检查 |
 | 准入规则套在分数上 | 持仓股涨停 / 成交额偶低即被卖出 | 规则分 entry / exit，准入只限制新买入 |
-| `$volume` 单位为"手" | 成交量约束严 100 倍 | 按 `$amount × 1000 / $close` 折算 |
-| qlib 默认涨跌停时买卖全禁 | 涨停不能卖、跌停不能买 | 只按方向限制（买卖点记账同口径） |
+| `$volume` 单位为"手" | 旧 qlib 回测的成交量约束严 100 倍 | 量能一律改用成交额 `$amount` |
+| qlib 默认涨跌停时买卖全禁 | 涨停不能卖、跌停不能买 | 只按方向限制（买卖点模拟器：涨停不买、跌停不卖） |
 | qlib 风险指标默认简单累加 | 回撤可超过 -100% | 复利口径（`mode="product"`） |
 | 股息率用复权价做分母 | 截面比例随复权因子扭曲 | 每股值 × 报告期末 `$factor` ÷ 复权收盘价 |
 | GitHub 下载中途断流 | 数据包不完整 | 断点续传 + 重试 |

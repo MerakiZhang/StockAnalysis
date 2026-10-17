@@ -1,4 +1,4 @@
-"""一个池的回测流程：确定区间（默认只到研发区）→ build_signal → run_backtest。"""
+"""一个池的回测流程：确定区间（默认只到研发区）→ 买卖点模拟器 + 自记账（backtest/points_engine.py）。"""
 from __future__ import annotations
 
 import pandas as pd
@@ -22,28 +22,13 @@ def backtest_window(pool, start: str | None = None, end: str | None = None,
 
 
 def backtest_pool(pool, start: str, end: str, ctx: dict | None = None) -> dict:
-    from ..selection.signal import build_signal
-    from .engine import run_backtest
+    from .points_engine import run_points_backtest
 
-    if pool.points is not None:   # 买卖点池：模拟器 + 自记账（backtest/points_engine.py）
-        from .points_engine import run_points_backtest
-
-        print(f"\n===== {pool.name}：买卖点池 回测 {start} ~ {end} =====", flush=True)
-        res = run_points_backtest(pool, start, end, ctx)
-        log_rss(f"{pool.name} 回测完成")
-        if res.get("ann") is not None:
-            print(f"年化 {res['ann']:.2%} 超额年化 {res['excess_ann']:.2%} 超额回撤 {res['mdd']:.2%} IR {res['ir']:.2f} "
-                  f"交易 {res.get('trades', 0)} 笔 胜率 {res.get('win_rate', float('nan')):.1%} "
-                  f"平均持仓 {res['avg_pos']:.1f} 只", flush=True)
-        return res
-
-    print(f"\n===== {pool.name}：scorer={pool.scorer['name']} 回测 {start} ~ {end} =====", flush=True)
-    signal = build_signal(pool, start, end, ctx=ctx)
-    log_rss(f"{pool.name} 信号完成")
-    print(f"池容分布 {signal.topk.value_counts().sort_index().to_dict()}", flush=True)
-    res = run_backtest(signal, pool, start, end)
+    print(f"\n===== {pool.name}：买卖点池 回测 {start} ~ {end} =====", flush=True)
+    res = run_points_backtest(pool, start, end, ctx)
     log_rss(f"{pool.name} 回测完成")
-    if not res.get("error"):
-        print(f"超额年化 {res['excess_ann']:.2%} 超额回撤 {res['mdd']:.2%} IR {res['ir']:.2f} "
-              f"日均换手 {res['turnover']:.2%} 年化成本 {res['cost']:.2%}", flush=True)
+    if res.get("ann") is not None:
+        print(f"年化 {res['ann']:.2%} 超额年化 {res['excess_ann']:.2%} 超额回撤 {res['mdd']:.2%} IR {res['ir']:.2f} "
+              f"交易 {res.get('trades', 0)} 笔 胜率 {res.get('win_rate', float('nan')):.1%} "
+              f"平均持仓 {res['avg_pos']:.1f} 只", flush=True)
     return res
