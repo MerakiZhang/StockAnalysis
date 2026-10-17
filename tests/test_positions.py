@@ -215,3 +215,13 @@ def test_grid_signal_key_includes_deal_price():
     a = load_pool("short_reversal", sets=["points.deal_price=close"])
     b = load_pool("short_reversal", sets=["points.deal_price=vwap"])
     assert _signal_key(a) != _signal_key(b)              # 成交价不同不能复用同一 PointSignal
+
+
+def test_last_day_of_window_uses_calendar_for_signal_day():
+    from stockanalysis.selection.points import _signal_days
+
+    idx = pd.DatetimeIndex(["2021-01-27", "2021-01-28", "2021-01-29"])   # 1 月最后一个交易日在窗口末尾
+    m = _signal_days(idx, "monthly", lambda d, f: True)
+    assert m.tolist() == [True, False, True]                            # 实盘 T = 月末 → 当天是检查日
+    assert _signal_days(idx, "monthly", lambda d, f: False).tolist() == [True, False, False]
+    assert _signal_days(idx[:1], "monthly", lambda d, f: False).tolist() == [True]   # 单日窗口 = 首次建仓

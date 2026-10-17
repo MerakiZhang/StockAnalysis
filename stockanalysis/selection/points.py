@@ -58,6 +58,17 @@ def _cond(ctx: dict, name: str, params: dict | None) -> pd.DataFrame:
     return out.reindex(index=ctx["close"].index, columns=ctx["close"].columns).fillna(False).astype(bool)
 
 
+def _signal_days(idx: pd.DatetimeIndex, freq: str, is_last_signal) -> np.ndarray:
+    """检查日面板。窗口最后一天没有"下一交易日"可比，改按交易日历（含未来日历）判断——
+    实盘信号日 T 总是窗口最后一天，否则月度 / 周度池在实盘的检查日永远不会触发。"""
+    from .schedule import signal_mask
+
+    mask = signal_mask(idx, freq)
+    if len(idx) > 1:
+        mask[-1] = bool(is_last_signal(idx[-1], freq))
+    return mask
+
+
 def build_point_signal(pool, start: str, end: str, ctx: dict | None = None, with_extra: bool = True) -> PointSignal:
     """with_extra=False：不算简报用的均线 / 条件分解面板（网格研究省内存）。"""
     from ..features import regime
@@ -65,7 +76,7 @@ def build_point_signal(pool, start: str, end: str, ctx: dict | None = None, with
     from ..features.fundamental import industry_map
     from ..models.scorers import make_scorer
     from .filters import limit_hits
-    from .schedule import signal_mask
+    from .schedule import is_signal_day, signal_mask
     from .signal import build_ctx, combine_masks
 
     spec = pool.points
@@ -120,7 +131,7 @@ def build_point_signal(pool, start: str, end: str, ctx: dict | None = None, with
         score=cut(score).astype(np.float64), score_pct=cut(score_pct).astype(np.float64),
         atr=cut(tech.get(ctx, "atr14")).astype(np.float64),
         can_buy=cut(traded & ~up).astype(bool), can_sell=cut(traded & ~down).astype(bool),
-        regime_ok=reg.loc[s:e].to_numpy(dtype=bool), signal_day=signal_mask(idx, spec.freq),
+        regime_ok=reg.loc[s:e].to_numpy(dtype=bool), signal_day=_signal_days(idx, spec.freq, is_signal_day),
         industry=[None if pd.isna(x) else str(x) for x in ind], extra=extra,
         fill=cut(ctx["vwap"]).astype(np.float64) if spec.deal_price == "vwap" else None,
     )
