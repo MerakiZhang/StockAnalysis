@@ -111,14 +111,27 @@ def run_points_selection(pool, t: pd.Timestamp, names: dict[str, str], health: b
         if len(check):
             check.insert(1, "name", check["code"].map(lambda c: names.get(c, "")))
 
+    from ..data.freshness import freshness, lagging
+
     recent = [tr for tr in sim.trades if tr.date >= ps.dates[max(0, i - 4)]]
-    meta = {"data_version": data_version(), "start": start.date(), "lag_days": (pd.Timestamp.now().normalize() - t).days,
+    fresh = lagging(freshness(t))
+    if len(fresh):
+        log("[warn] 数据滞后：\n" + fresh.to_string(index=False))
+    meta = {"data_version": data_version(), "fresh": fresh, "start": start.date(),
+            "lag_days": (pd.Timestamp.now().normalize() - t).days,
             "regime_ok": bool(ps.regime_ok[i]), "signal_day": bool(ps.signal_day[i]),
             "n_eligible": int(ps.eligible[i].sum()), "n_buy": int(ps.buy[i].sum())}
     paths = save_points_pool(pool, t, table, near, check, recent, names, meta)
     log(table.to_string(index=False) if len(table) else "（空仓，无计划）")
     log(f"股池: {paths[0]}\n简报: {paths[1]}")
     return table
+
+
+def _fresh_lines(fresh: pd.DataFrame | None) -> list[str]:
+    """简报"数据截止"：全部到位一行带过；有滞后时列出滞后项。"""
+    if fresh is None or not len(fresh):
+        return ["> 数据截止：各数据源均已覆盖信号日"]
+    return ["> ⚠ 数据截止：以下数据未覆盖信号日（滞后部分沿用最近已有数据）", "", _md(fresh)]
 
 
 def _md(df: pd.DataFrame) -> str:
@@ -145,7 +158,8 @@ def save_points_pool(pool, t: pd.Timestamp, table, near, check, recent, names, m
         f"# {pool.name} 股池 {tag}", "", status_line, "",
         f"> 基于 {tag} 收盘数据，计划于其后首个交易日收盘执行（数据滞后 {meta['lag_days']} 个自然日）。",
         f"> 数据版本 {meta['data_version']} · 配置 {pool.config_hash} · 模拟起点 {meta['start']}"
-        f" · 持仓上限 {spec.max_positions} 只（等权）", "",
+        f" · 持仓上限 {spec.max_positions} 只（等权）",
+        *_fresh_lines(meta.get("fresh")), "",
         f"- 今日{'可以' if meta['regime_ok'] else '不'}开新仓（择时）"
         + ("" if meta["signal_day"] else f"；非 {spec.freq} 检查日，只执行止损类卖点"),
         f"- 可买股票 {meta['n_eligible']} 只，其中满足买点 {meta['n_buy']} 只",

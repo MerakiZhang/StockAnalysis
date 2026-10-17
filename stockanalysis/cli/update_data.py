@@ -23,6 +23,7 @@ def add_arguments(p) -> None:
     p.add_argument("--start-year", type=int, default=2012, help="fundamental 起始报告期年份")
     p.add_argument("--events-start", default=EVENTS_START, help="events 起始日期")
     p.add_argument("--workers", type=int, default=4, help="baostock 并行下载进程数")
+    p.add_argument("--status", action="store_true", help="只显示各数据源截止日（对比最新交易日），不下载")
 
 
 def run(args) -> None:
@@ -31,6 +32,9 @@ def run(args) -> None:
     from ..data.market import latest_trade_date
     from ..data.sync import data_version
 
+    if args.status:
+        print_status()
+        return
     unknown = set(args.only) - set(SOURCES)
     if unknown:
         raise SystemExit(f"未知数据源 {sorted(unknown)}，可选 {SOURCES}")
@@ -72,7 +76,16 @@ def run(args) -> None:
         except Exception as e:  # noqa: BLE001
             log(f"[market_temp] 失败: {e}")
     refresh_panels(log)
+    print_status()
     print(f"done {pd.Timestamp.now():%H:%M:%S}", flush=True)
+
+
+def print_status() -> None:
+    from ..data.freshness import freshness
+    from ..data.sync import data_version
+
+    print(f"\n数据截止（行情数据版本 {data_version()}）：", flush=True)
+    print(freshness().to_string(index=False), flush=True)
 
 
 def refresh_panels(log=print) -> None:

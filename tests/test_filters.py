@@ -19,7 +19,6 @@ def make_ctx(**over):
         "volume": pd.DataFrame(1e6, index=DATES, columns=CODES),
         "amount": pd.DataFrame(1e5, index=DATES, columns=CODES),  # 千元 → 1 亿元
         "membership": pd.DataFrame(True, index=DATES, columns=CODES),
-        "st_codes": set(),
     }
     ctx.update(over)
     return ctx
@@ -40,17 +39,6 @@ def test_in_universe_uses_membership():
     ok = F.in_universe(make_ctx(membership=mem))
     assert not ok.loc[DATES[:5], "SH600000"].any()
     assert ok.loc[DATES[5:], "SH600000"].all()
-
-
-def test_exclude_st_only_last_day():
-    ok = F.exclude_st(make_ctx(st_codes={"SZ000001"}))
-    assert not ok["SZ000001"].iloc[-1]
-    assert ok["SZ000001"].iloc[:-1].all()
-    assert ok.drop(columns="SZ000001").all().all()
-
-
-def test_exclude_st_empty_set_keeps_all():
-    assert F.exclude_st(make_ctx()).all().all()
 
 
 def test_boards():

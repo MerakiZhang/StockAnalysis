@@ -112,3 +112,20 @@ def test_margin_one_exchange_empty_not_saved(tmp_path, monkeypatch):
     with pytest.raises(E.IncompleteError):
         E.fetch_margin(pd.Timestamp("2026-10-16"))
     assert not list(tmp_path.rglob("*.parquet"))
+
+
+def test_freshness_flags_lagging_and_margin_prev_day(monkeypatch):
+    import stockanalysis.data.market as M
+    from stockanalysis.data import freshness as Fr
+
+    cal = pd.bdate_range("2026-10-12", "2026-10-16")
+    monkeypatch.setattr(M, "trade_calendar", lambda start=None, end=None: cal[cal <= pd.Timestamp(end)] if end else cal)
+    t = pd.Timestamp("2026-10-16")
+    last = {"qlib 行情": t, "baostock 逐日（历史 ST）": pd.Timestamp("2026-10-14"),
+            "两融": pd.Timestamp("2026-10-15"), "公告": pd.Timestamp("2026-10-17"), "回购快照": None}
+    tab = Fr.freshness(t, last).set_index("数据")["状态"]
+    assert tab["qlib 行情"] == Fr.OK and tab["公告"] == Fr.OK
+    assert tab["两融"] == Fr.OK                         # 两融到 T-1 即正常
+    assert tab["baostock 逐日（历史 ST）"] == "⚠ 滞后 2 个交易日"
+    assert tab["回购快照"] == "⚠ 无数据"
+    assert list(Fr.lagging(Fr.freshness(t, last))["数据"]) == ["baostock 逐日（历史 ST）", "回购快照"]

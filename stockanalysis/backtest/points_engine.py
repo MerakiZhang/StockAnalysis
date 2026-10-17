@@ -24,8 +24,8 @@ def _bench_returns(symbol: str, dates: pd.DatetimeIndex) -> pd.Series:
     c = load_wide([symbol], s, e, ("close",))["close"][symbol].astype(float).reindex(dates)
     gaps = int(c.isna().sum())
     if gaps:
-        print(f"[warn] 基准 {symbol} 在回测区间缺 {gaps} 个交易日，超额收益不可靠（换一个基准）", flush=True)
-    return c.pct_change(fill_method=None).fillna(0.0)
+        print(f"[warn] 基准 {symbol} 在回测区间缺 {gaps} 个交易日（缺日收益记 0，次日计入完整涨跌）", flush=True)
+    return c.ffill().pct_change(fill_method=None).fillna(0.0)
 
 
 def account(sim, ps, pool, bench: pd.Series | None = None) -> pd.DataFrame:

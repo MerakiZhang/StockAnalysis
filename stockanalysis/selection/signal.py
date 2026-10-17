@@ -1,14 +1,13 @@
 """行情上下文 + 过滤面板（选股与回测共用）。
 
-    build_ctx      加载 [start - warmup, end] 的行情宽表、在市面板、当前 ST 快照
+    build_ctx      加载 [start - warmup, end] 的行情宽表、在市面板
     combine_masks  按池 yaml 启用的过滤规则求 exit（持有）/ entry（准入）交集
 """
 from __future__ import annotations
 
 import pandas as pd
 
-from ..data.market import CTX_FIELDS, latest_trade_date, market_ctx, trade_calendar
-from ..data.reference import current_st_codes
+from ..data.market import CTX_FIELDS, market_ctx, trade_calendar
 from ..data.universe import membership_panel, universe_spans
 from .filters import FILTERS, scope_of
 
@@ -27,10 +26,7 @@ def build_ctx(pool, start: str, end: str, warmup_days: int = DEFAULT_WARMUP_DAYS
     dates = trade_calendar(load_start, end)
     ctx = {k: v.reindex(index=dates, columns=codes) for k, v in market_ctx(codes, load_start, end, fields).items()}
     ctx.update(codes=codes, dates=dates, start=pd.Timestamp(start), end=pd.Timestamp(end),
-               membership=membership_panel(spans, dates, codes), st_codes=set())
-    # ST 只有当前快照：仅当区间末日就是数据最新交易日（实盘选股）时才使用
-    if "exclude_st" in pool.filters and dates[-1] >= latest_trade_date():
-        ctx["st_codes"] = current_st_codes()
+               membership=membership_panel(spans, dates, codes))
     return ctx
 
 

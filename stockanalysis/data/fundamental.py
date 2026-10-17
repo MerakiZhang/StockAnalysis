@@ -6,7 +6,7 @@
     xjll/<period>.parquet        现金流量表（全市场批量，按报告期）
     yysj/<period>.parquet        定期报告实际披露日（全市场批量，按报告期）
     yjyg/<period>.parquet        业绩预告（含公告日期）
-    spot/<yyyymmdd>.parquet      当日快照（名称 / ST 状态），只留最新一份
+    spot/<yyyymmdd>.parquet      当日快照（名称），只留最新一份
 
 防未来函数：业绩报表的`最新公告日期`列是公司最新公告的日期（不是该报告的披露日），不能使用。
 可见日 = 实际披露日（yysj）的次日；没有实际披露日时按交易所披露截止规则：
@@ -312,7 +312,7 @@ def load_yjyg_all(start_year: int = 2012) -> pd.DataFrame:
 
 
 def fetch_spot(use_cache: bool = True) -> pd.DataFrame:
-    """A股当日快照：code/name/is_st。当日缓存，只留最新一份。"""
+    """A股当日快照：code/name。当日缓存，只留最新一份。"""
     import akshare as ak
 
     path = snapshot_path(AKSHARE_DIR / "spot")
@@ -325,7 +325,6 @@ def fetch_spot(use_cache: bool = True) -> pd.DataFrame:
             "name": df["名称"],
         }
     )
-    out["is_st"] = out["name"].str.contains("ST", case=False, na=False)
     return save_snapshot(out, path.parent)
 
 

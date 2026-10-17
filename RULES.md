@@ -29,7 +29,7 @@ A 股全市场（qlib all，当日在市）
 
 | 规则 | 类型 | 口径 | 依据 |
 |------|------|------|------|
-| not_st / exclude_st | exit | 历史 ST 用 baostock 逐日 isST；当前快照只作用于最新一天 | 业绩报表里的简称是当前名称，不能判断历史 ST |
+| not_st | exit | 历史与当日 ST 都用 baostock 逐日 isST（当日数据未到时沿用前一日，简报"数据截止"会标出） | 业绩报表里的简称是当前名称，不能判断历史 ST；东财当日快照接口不稳定，2026-10 起不再使用 |
 | min_price | exit | 不复权价 < 2 元 | 面值退市风险 |
 | min_market_cap | exit | 总市值 < 30 亿（净利润 / EPS 推算股本） | 市值退市、操纵风险 |
 | no_consecutive_loss | exit | 连续两年年报亏损 | 退市新规 |
