@@ -70,7 +70,7 @@ def test_repo_pools_validate_against_registries():
 
 
 def test_override_replaces_whole_section():
-    spec = load_pool("hs300", override={"scorer": {"name": "random", "seed": 1}})
+    spec = load_pool("long", override={"scorer": {"name": "random", "seed": 1}})
     assert spec.scorer == {"name": "random", "seed": 1}
 
 

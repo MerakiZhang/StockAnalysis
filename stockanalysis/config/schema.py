@@ -11,7 +11,7 @@
     filters:   {规则名: 参数 | false}                   过滤规则（FILTERS 注册表），false = 关闭默认规则
     account_boards: [main, ...]                         账户可交易板块（global.yaml）；boards 规则未写参数时用它
     points:    {max_positions, buy, sell, ...}          买卖点池（strategy.name = signal_points）的规则，见 PointsSpec
-    backtest / cost / account / exchange / model / data   系统级设置（通常只在 global.yaml）
+    backtest / cost / account / exchange / data   系统级设置（通常只在 global.yaml）
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ STATUSES = ("production", "observe")   # production = 可作实盘参考；obser
 REBALANCE_FREQS = ("daily", "weekly", "monthly")
 MANDATORY_FILTERS = ("in_universe",)   # 不可关闭
 TOP_LEVEL_KEYS = ("name", "enabled", "status", "universe", "benchmark", "sizing", "rebalance", "signal",
-                  "scorer", "strategy", "filters", "backtest", "cost", "account", "account_boards", "exchange", "model",
+                  "scorer", "strategy", "filters", "backtest", "cost", "account", "account_boards", "exchange",
                   "data", "points")
 POINTS_STRATEGY = "signal_points"      # 买卖点池的策略名：走 selection/positions.py 模拟器，不走 qlib TopkDropout
 FILL_MODES = ("strict", "always")
@@ -110,7 +110,6 @@ class PoolSpec:
     cost: dict
     account: float
     exchange: dict
-    model: dict
     data: dict
     raw: dict = field(repr=False)  # 合并后的完整配置
     config_hash: str = ""

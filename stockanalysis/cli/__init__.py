@@ -10,11 +10,8 @@ import importlib
 
 COMMANDS = {  # 命令名 -> 模块名
     "select": "select",
-    "train": "train",
     "backtest": "backtest",
-    "compare": "compare",
     "grid": "grid",
-    "rounds": "rounds",
     "factors": "factors",
     "quality": "quality",
     "event-study": "event_study",
@@ -27,7 +24,7 @@ COMMANDS = {  # 命令名 -> 模块名
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -X utf8 -m stockanalysis",
-                                     description="A 股指数成分股 LightGBM 选股")
+                                     description="A 股全市场规则选股（买点入池、卖点出池）")
     sub = parser.add_subparsers(dest="command", required=True, metavar="命令")
     modules = {}
     for cmd, mod_name in COMMANDS.items():

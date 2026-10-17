@@ -32,14 +32,3 @@ backtest:
   end: null                 # null = 数据最新交易日
   in_sample_end: '2022-12-31'   # ≤ 此日为研发区（调参/选模型），之后为保留集
 
-# ---------- 模型公共参数（lgbm / linear 共用，池内可覆盖）----------
-model:
-  label_horizon: 5          # 标签：未来 5 日收益（T+1 收盘起算）
-  train_years: 4            # 每次滚动训练窗口
-  valid_months: 6           # 验证段（记录损失曲线）
-  retrain: yearly           # yearly / quarterly
-  seed: 42
-  lgbm:                     # 覆盖 qlib Alpha158 基准参数（stockanalysis/models/estimators.py LGBM_DEFAULTS）
-    learning_rate: 0.05     # 研发区 RankIC 三池均优于 0.2（hs300 .051/.049 zz500 .060/.056 zz1000 .094/.089）
-    early_stopping_rounds: 0   # 不早停：早停在部分窗口第 1 棵树即停止，模型退化、分数大量并列
-    num_boost_round: 200       # 研发区树数研究（25~400）：200 棵 RankIC 三池最高，Top5 两池最高

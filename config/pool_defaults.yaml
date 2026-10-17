@@ -17,7 +17,7 @@ rebalance:
 signal:
   score_ema: null           # 分数 EMA 平滑跨度；研发区网格中各池均变差，不启用
 scorer:
-  name: lgbm                # lgbm（Alpha158 + LightGBM 滚动训练）/ linear（对照）/ momentum、random（冒烟）
+  name: momentum            # 池 yaml 覆盖；规则池用 multifactor（优先分）；momentum / random 为冒烟用
 
 # ---------- 回测策略 ----------
 strategy:

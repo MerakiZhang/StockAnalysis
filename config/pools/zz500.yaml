@@ -1,9 +1,0 @@
-# 中证500 股池：只写与 config/pool_defaults.yaml 不同的项。
-# 2026-10 评估：研发区超额 +11.1%/IR 0.61；保留集 2023+（第二次查看，非干净）-16.4%/IR -1.05 → 仅观察
-name: zz500
-enabled: true
-status: observe
-universe: csi500
-benchmark: SH000905
-filters:
-  min_amount: {amount: 5.0e+7, window: 20}   # entry：近 20 日日均成交额（元）

@@ -46,7 +46,7 @@ def load_global(path: Path | None = None) -> dict:
 
 
 def parse_sets(sets: list[str] | None) -> dict:
-    """["model.lgbm.learning_rate=0.05", "rebalance.hold_thresh=10"] -> 嵌套 dict（值按 yaml 解析）。"""
+    """["points.stop_loss=0.05", "rebalance.hold_thresh=10"] -> 嵌套 dict（值按 yaml 解析）。"""
     out: dict = {}
     for item in sets or []:
         if "=" not in item:
@@ -153,7 +153,6 @@ def build_pool_spec(name: str, cfg: dict, registries: dict | None = None, valida
         cost=dict(cfg.get("cost") or {}),
         account=float(cfg.get("account", 1e6)),
         exchange=dict(cfg.get("exchange") or {}),
-        model=dict(cfg.get("model") or {}),
         data=dict(cfg.get("data") or {}),
         raw=cfg,
         config_hash=config_hash(cfg),
