@@ -49,7 +49,7 @@ class PointsSpec:
         sector_groups  把若干一级合并为一个大类计数，如 {大金融: [银行, 非银金融]}
         regime         择时参数（features/regime.py state()）；不满足时不开新仓
         regime_exit    择时不满足时是否清仓
-        live_start     实盘跟踪起始信号日：每日选股从这天起用同一模拟器推演到当日
+        live_start     实盘跟踪第一段的起始信号日（之后的段见 data/pool/<池>/segments.json，selection/segments.py）
         deal_price     成交价：close（T+1 收盘）/ vwap（T+1 全天均价，更接近盘中分批成交）/ open（T+1 开盘；
                        开盘即涨停买不进、即跌停卖不出）
     """

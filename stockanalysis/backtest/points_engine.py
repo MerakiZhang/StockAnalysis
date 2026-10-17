@@ -2,12 +2,14 @@
 
 记账口径：
     - 复权收盘价逐日计收益（含分红送转）；停牌日市值不变，复牌后按复牌价接续
-    - 成交价为 points.deal_price（收盘价或当日均价）；均价成交时买入当天计入"均价 → 收盘"的盈亏，卖出按均价折回
-    - 每日先卖后买；买入金额 = 买入前净值 / max_positions（现金不足则用尽现金），不足 max_positions 时留现金
+    - 成交价为 points.deal_price（收盘价 / 当日均价 / 开盘价）；非收盘成交时买入当天计入"成交价 → 收盘"的盈亏，卖出按成交价折回
+    - 每日先卖后买；买入金额 = 买入前净值 / max_positions（现金不足则用尽现金），不足 max_positions 时留现金；之后不再平衡，
+      设 points.max_weight 时，检查日权重超限的股票次日按成交价减到 1 / max_positions
+    - state 参数衔接跟踪段：后一段从前一段期末的现金与持仓市值继续记账
     - 成本：买 = 佣金 + 滑点；卖 = 佣金 + 印花税 + 滑点；佣金单笔不低于 min_cost
     - 不考虑整手（100 股）取整与成交量上限（单只仓位约为净值 / 10，对流动性门槛以上的股票影响很小）
 report 列：return（未扣成本日收益）、cost（成本 / 前一日净值）、bench（基准日收益）、turnover（成交额 / 前一日净值）、
-          n_pos（持仓只数）、cash（现金占比）。与 backtest/metrics.segment_metrics 兼容。
+          n_pos（持仓只数）、cash（现金占比）、nav（净值）、max_w（最大单票权重）。与 backtest/metrics.segment_metrics 兼容。
 """
 from __future__ import annotations
 

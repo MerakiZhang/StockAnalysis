@@ -35,11 +35,6 @@ def _base(ctx: dict) -> pd.DataFrame:
     return ctx["close"]
 
 
-def _const(ctx: dict, value: bool) -> pd.DataFrame:
-    b = _base(ctx)
-    return pd.DataFrame(value, index=b.index, columns=b.columns)
-
-
 def _by_column(ctx: dict, flags: dict[str, bool] | pd.Series) -> pd.DataFrame:
     b = _base(ctx)
     row = pd.Series(flags).reindex(b.columns).fillna(False).astype(bool).to_numpy()

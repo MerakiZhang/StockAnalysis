@@ -9,13 +9,14 @@ A 股全市场规则选股程序。流程：全市场 → 剔除烂股 → 按�
 | short_reversal | production（偏弱） | 急跌 / RSI 低位反转，持有 5 天 | 中证1000 | +5.1% / +4.0% | +8.2% / +2.0% |
 | short_breakout | observe（已停止每日出池） | 放量突破（对照池） | 中证1000 | -3.6% / -4.8% | -6.5% / -11.7% |
 
-均为扣除成本（佣金 + 印花税 + 滑点）后的口径，单一起点回测；6 个错开建仓日合成的保留集结果
+均为扣除成本（佣金 + 印花税 + 滑点）后的口径，2026-10-17 冻结参数的单一起点回测；6 个错开建仓日合成的保留集结果
 （long +13.0% / +8.8%，short_reversal +7.4% / +1.8%，short_breakout -6.7% / -11.4%）结论一致。
+long 自 2026-10-19 起另启用单票权重上限 20% 与业绩预减每日检查（研发区 6 起点合成 10.41% → 10.67%，见 RULES 第 4 节）。
 
 **注意**：
 - 状态按事先定好的规则判定：研发区和保留集都满足"扣成本后绝对年化 > 0 且超额 > 0"才标 production。
 - short_reversal 虽然达标，但研发区参数邻域不稳（持有天数从 5 改为 20 即转负）、单一起点最大回撤约 -48%、
-  年化成本约 4.8%，仓位宜轻，并以 2026-10-15 起的实盘跟踪为准。
+  年化成本约 4.8%，且对滑点极敏感（千 1 → 千 2，研发区年化 5.6% → 2.3%），仓位宜轻，并以 2026-10-15 起的实盘跟踪为准。
 - long 的收益集中在少数股票（如 2020~2022 年的煤炭股），2018 年亏约 22%。
 - 规则、依据与评估记录见 `RULES.md`；代码架构、修改方法与防未来约定见 `ARCHITECTURE.md`；重构过程见 `REFACTOR_PLAN.md`。
 
@@ -72,12 +73,13 @@ python -X utf8 -m pytest tests -q                                      # 单元�
 ## 配置与目录
 
 ```
-config/global.yaml          系统级：资金、账户板块权限、成本、撮合、回测窗口、数据同步
+config/global.yaml          系统级：资金、账户板块权限、成本、回测窗口、数据同步
 config/pool_defaults.yaml   所有股池共用的规则（烂股剔除、准入）——改一处，全部池生效
 config/pools/<name>.yaml    单个股池：基准、优先分、买卖点（points 段）；加池时复制一个现有池改名
+config/sw_l1.yaml           申万二级 → 一级（points.sector_max 大类持仓上限用）
 stockanalysis/              代码包：config / data / features / models / selection / backtest / research / cli
 tests/                      单元测试
-data/pool/<name>/           股池输出（入库，实盘跟踪记录）
+data/pool/<name>/           股池输出（入库，实盘跟踪记录）；segments.json = 跟踪段（各段存档配置）
 data/reports/               研究报告（不入库）
 data/raw/{akshare,baostock,longbridge}/   原始数据缓存（不入库，可重新下载）
 data/panel/                 由 raw 生成的紧凑表（不入库，可随时重建）

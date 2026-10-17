@@ -40,7 +40,7 @@ class PointSignal:
     signal_day: np.ndarray       # (交易日,)
     industry: list[str | None]
     extra: dict = field(default_factory=dict)   # 简报用：均线等卖出线、各买点条件面板
-    fill: np.ndarray | None = None   # 成交价（复权）；None = 收盘价。均价成交时为 vwap，缺失处回退收盘价
+    fill: np.ndarray | None = None   # 成交价（复权）；None = 收盘价。均价 / 开盘成交时为 vwap / open，缺失处回退收盘价
     colmap: dict[str, int] = field(init=False, repr=False)
 
     def __post_init__(self):

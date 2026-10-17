@@ -33,7 +33,7 @@ def signal_mask(dates: pd.DatetimeIndex, freq: str) -> np.ndarray:
 def is_signal_day(date, freq: str) -> bool:
     """实盘：date 是否为信号日——下一个交易日（qlib 未来日历 day_future.txt）落在不同周期。
 
-    没有未来日历时保守地视为信号日（照常换仓）。
+    没有未来日历时保守地视为信号日（照常检查买点与条件卖点）。
     """
     if freq == "daily":
         return True
