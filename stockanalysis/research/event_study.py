@@ -162,7 +162,7 @@ def study(name: str, show_holdout: bool = False, sets: list[str] | None = None,
                          "等权20日%": eq_fwd20[sel].mean() * 100})
 
     cov = ctx.get("_coverage", {})
-    notes = [f"- 数据缺失（相关条件 / 因子未生效或全空）：{', '.join(sorted(cov))}" if cov else "- 所有数据源均已加载"]
+    notes = [f"- 数据覆盖率：{'、'.join(f'{k} {v:.1%}' for k, v in sorted(cov.items()))}" if cov else "- 所有数据源均已加载"]
     return [
         f"## {name}（{pool.universe} ∩ boards={pool.filters['boards']['boards']}，"
         f"{'研发区+保留集' if show_holdout else '研发区'} {start} ~ {end}）", "",
