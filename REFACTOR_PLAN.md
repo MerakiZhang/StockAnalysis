@@ -156,12 +156,12 @@ stockanalysis/
 | 阶段 | 任务 | 状态 | 提交 | 备注 |
 |------|------|------|------|------|
 | 0 | 计划入库、建分支 `refactor/rule-pools` | ☑ | | |
-| 1 | `data/baostock_data.py`：逐日 ST / 停牌 / 估值 / 换手（全市场，断点续传） | ◐ | | 代码完成（替换了原生 recv 空转的 send_msg）；本机经 Clash Meta TUN（198.18.x fake-IP）时大响应会卡住，待网络直连后下载 |
+| 1 | `data/baostock_data.py`：逐日 ST / 停牌 / 估值 / 换手（全市场，断点续传） | ☑ | ea26909 | 多进程下载 5481 只，2026-10-17 完成，失败 0；换网络后可直连 |
 | 1 | 财报真实披露日、业绩预告 / 快报 | ☑ | | 改用 akshare：`stock_yysj_em` 实际披露日（2013+）、`stock_yjyg_em` / `stock_yjkb_em`（带公告日）；可见日 = 披露日次日；修复报告期缓存永不更新的问题 |
 | 1 | `data/events.py`：两融、龙虎榜、股东户数、解禁、增减持 / 回购、公告排雷 | ☑ | | 立案调查公告归在"其他"类，须抓全部公告按标题识别 |
 | 1 | `data/longbridge_cli.py`：市场温度历史、实盘体检封装 | ☑ | | 市场温度单次区间上限 3 年，按年缓存 |
 | 1 | `update-data` 命令接入新数据源；防未来单元测试 | ☑ | | `--only fundamental,events,baostock,market_temp`，`tests/test_data_layer.py` |
-| 1 | 全量历史下载（后台） | ◐ | | 日志 `data/reports/logs/`；两融约 6 小时、公告约 9 小时 |
+| 1 | 全量历史下载（后台） | ◐ | | baostock / 两融 / 龙虎榜等已完成；公告进行中（节假日失败单元重跑即补） |
 | 2 | 烂股剔除规则（exit）+ 解禁回避（entry）；`account_boards` 全局板块权限 | ☑ | | `features/risk.py` + 8 条过滤规则写入 pool_defaults；`tests/test_risk.py` |
 | 2 | 研发区剔除效果统计（每年剔除只数、剔除组 vs 保留组后续收益） | ◐ | | `quality` 命令已就绪（2018H1 冒烟通过）；全量结果待公告 / baostock 数据下载完 ⛔ 汇报 |
 | 3 | `features/technical.py`（akquant.talib + qlib 表达式） | ☑ | a4a456d | akquant.talib 逐股计算、停牌缺口不传染；量能统一用成交额（qlib volume 口径不一致） |
@@ -172,11 +172,11 @@ stockanalysis/
 | 4 | `selection/positions.py` 状态机 `step_positions()` | ☑ | | `decide()` + `simulate()`；`tests/test_positions.py` |
 | 4 | `multifactor` 优先分、`signal_points` 回测策略、schema / 配置 | ☑ | | 回测改为自记账（`backtest/points_engine.py`），见进度日志 |
 | 4 | 选股输出（买入原因、卖出线、接近买点、长桥体检栏）；一致性检查 | ☑ | | `selection/points_daily.py`；选股与回测是同一个 simulate()，一致性由构造保证 + 记账逐日自检 |
-| 5 | 中长线池 `long`：规则落地 + 研发区网格 + 滚动验证 | ◐ | | 网格 v1 / v2（36 方案，v2 为 6 个错开起点合成）完成；未定稿，见暂停点 ⛔ 汇报、定参数 |
-| 6 | 短线反转池 `short_reversal`：规则落地 + 研发区网格 + 滚动验证 | ☐ | | ⛔ 汇报、定参数 |
-| 6 | 短线突破池 `short_breakout`（对照）：规则落地 + 研发区网格 + 滚动验证 | ☐ | | ⛔ 汇报、定参数 |
-| 7 | 冻结 → 保留集评估一次 → 定状态 | ☐ | | |
-| 7 | 删旧三池与 lgbm 代码；更新 README / RULES / ARCHITECTURE；首期股池 + MCP 复核 | ☐ | | |
+| 5 | 中长线池 `long`：规则落地 + 研发区网格 + 滚动验证 | ☑ | e550214 | 网格 v1~v3 + 均价对照；按参数邻域定稿：月度、无移动止盈、rank_exit 0.3、industry_cheap 0.7 |
+| 6 | 短线反转池 `short_reversal`：规则落地 + 研发区网格 + 滚动验证 | ☑ | e550214 | 网格 v1（81）+ v2（32，择时 / 均价）；定稿：急跌 / RSI 低位，持有 5 天，止损 8%；邻域不稳，结论偏弱 |
+| 6 | 短线突破池 `short_breakout`（对照）：规则落地 + 研发区网格 + 滚动验证 | ☑ | e550214 | 网格 v1（24）全部为负；定稿：止损 5%、持有 10 天，observe 对照 |
+| 7 | 冻结 → 保留集评估一次 → 定状态 | ☑ | e550214 | long / short_reversal production，short_breakout observe（RULES.md 第 5 节） |
+| 7 | 删旧三池与 lgbm 代码；更新 README / RULES / ARCHITECTURE；首期股池 + MCP 复核 | ☑ | 65a0737 | ec49829 / 5d4a4d1 删除；文档改写；首期股池 2026-10-16 + 长桥体检复核；check 前缀一致性 0 差异 |
 
 ### 进度日志
 
@@ -262,3 +262,15 @@ stockanalysis/
   - 均价成交对照（修复后）：长线推荐参数收盘价成交 10.41% / 均价成交 10.59%，影响可以忽略。短线反转最好的两组：
     B（急跌 + RSI 低位）持有 5 天，收盘价 5.6% / 均价 5.7%；C（六项任一）持有 20 天，收盘价 6.3% / 均价 5.2%。
     但 B 持有 20 天是 -3.2%，C 持有 5 天是 -6.2%，最好的参数换个持有天数就转为亏损，说明结果不稳，接近噪声。
+- 2026-10-17：用户决定"都保留，先按计划完成整个项目，后面有需要再改"。阶段 7 完成：
+  - 冻结参数（long：月度检查、不设移动止盈、rank_exit 0.3、industry_cheap 0.7；short_reversal：急跌 / RSI 低位，
+    持有 5 天，止损 8%，不设止盈；short_breakout：止损 5%，不设移动止盈，持有 10 天）。
+  - 保留集 2023-01 ~ 2026-10 一次性评估（单一起点 / 6 起点合成）：long +12.2% / +13.0%（超额 +7.6% / +8.8%）；
+    short_reversal +8.2% / +7.4%（超额 +2.0% / +1.8%）；short_breakout -6.5% / -6.7%。按事先定的规则：
+    long、short_reversal 标 production，short_breakout 标 observe。short_reversal 的参数邻域不稳，在 RULES / README 中注明。
+  - 删除旧三池、LightGBM / linear 训练代码与 Alpha158 特征；README / RULES / ARCHITECTURE 改写。
+  - 收尾时发现并修复：窗口最后一天从不被标为检查日 → 月度 long 池实盘月末不会买入或条件卖出（回测不受影响）。
+    `check` 对买卖点池改为前缀一致性检查（数据截止到 T vs 延续到之后），三池 0 差异。
+  - live_start 2026-10-15，首期股池基于 2026-10-16 数据生成（long 10 只：银行 3、保险 1、券商 1 等；short_reversal 10 只
+    均为 10-15 美国 CPI 超预期后的急跌股，其中有色 4 只，同受一次宏观冲击；short_breakout 空仓）。
+  - 遗留：公告下载完成后补跑 `quality` / 正式版 `event-study`，并重跑保留集回测核对风险公告规则（评估时公告约到 2024 年上半年）。
