@@ -125,5 +125,136 @@
     "industry_max": 3
    }
   }
+ },
+ {
+  "start": "2026-10-19",
+  "hash": "cd1eba3007",
+  "config": {
+   "account": 1000000,
+   "account_boards": [
+    "main"
+   ],
+   "data": {
+    "github_repo": "chenditc/investment_data",
+    "auto_sync": true,
+    "proxy": null
+   },
+   "cost": {
+    "commission": 0.00025,
+    "stamp_tax": 0.0005,
+    "slippage": 0.001,
+    "min_cost": 5
+   },
+   "backtest": {
+    "start": "2018-01-01",
+    "end": null,
+    "in_sample_end": "2022-12-31"
+   },
+   "scorer": {
+    "name": "multifactor",
+    "factors": {
+     "dividend_yield": 1.0,
+     "dividend_continuity": 1.0,
+     "ep_ttm": 1.0,
+     "ocf_to_netprofit": 0.5,
+     "vol20": -1.0,
+     "ret20": -0.5,
+     "limit_up_n20": -0.5
+    }
+   },
+   "filters": {
+    "in_universe": {},
+    "not_st": {},
+    "min_price": {
+     "price": 2.0
+    },
+    "min_market_cap": {
+     "cap": 3000000000.0
+    },
+    "no_consecutive_loss": {
+     "years": 2
+    },
+    "positive_equity": {},
+    "revenue_floor": {
+     "revenue": 300000000.0
+    },
+    "no_risk_notice": {
+     "days": 365
+    },
+    "boards": {
+     "boards": [
+      "main"
+     ]
+    },
+    "min_list_days": {
+     "days": 365
+    },
+    "exclude_suspend": {
+     "days": 20
+    },
+    "exclude_limit": {},
+    "no_release_ahead": {
+     "days": 20,
+     "ratio": 0.05
+    },
+    "min_amount": {
+     "amount": 50000000.0,
+     "window": 20
+    }
+   },
+   "name": "long",
+   "enabled": true,
+   "status": "production",
+   "universe": "all",
+   "benchmark": "SH000906",
+   "points": {
+    "live_start": "2026-10-15",
+    "max_positions": 10,
+    "freq": "monthly",
+    "buy": {
+     "industry_cheap": {
+      "pct": 0.7
+     },
+     "dividend_steady": {
+      "times": 3
+     }
+    },
+    "buy_any": {
+     "forecast_positive": {},
+     "holders_concentrate": {
+      "chg": -10
+     },
+     "high_dividend": {
+      "dy": 0.04
+     },
+     "buffett": {
+      "roe": 15
+     }
+    },
+    "avoid": {
+     "chase_high": {
+      "rise": 0.2
+     },
+     "volume_surge": {
+      "amt": 2.0
+     },
+     "forecast_negative": {},
+     "holder_reduce": {}
+    },
+    "sell": {
+     "industry_expensive": {
+      "pct": 0.2
+     },
+     "forecast_negative": {}
+    },
+    "rank_exit": 0.3,
+    "trailing_stop": null,
+    "industry_max": 3,
+    "sell_daily": [
+     "forecast_negative"
+    ],
+    "max_weight": 0.2
+   }
+  }
  }
 ]
