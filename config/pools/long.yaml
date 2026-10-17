@@ -1,7 +1,9 @@
 # 中长线持有池：A 股全市场 → 烂股剔除（pool_defaults）→ 板块权限 → 中长线买点入池 / 卖点出池，上限 10 只。
 # 逻辑（用户 2026-10-16 选定）：质量价值 + 分红 + 预期。依据：初步事件研究（研发区 2018~2022）中
 #   行业内便宜 / 分红连续 / 高股息 / 业绩预增 / 股东户数大降 4~5 年为正；追涨、站上均线做买点为负。
-# 参数以研发区网格与滚动验证定稿；定稿前 enabled: false。
+# 参数 2026-10-17 按研发区网格（6 起点合成）的参数邻域定稿，见 REFACTOR_PLAN.md 进度日志：
+#   月度检查、不设移动止盈（25% 有害）、rank_exit 0.3（优于 0.5）、industry_cheap 0.7（0.7~0.8 相近，优于 0.5）。
+#   dividend_steady 2/3/4 次结果相同（优先分已偏向分红连续），保留作为下限。
 name: long
 enabled: false
 status: observe
@@ -17,7 +19,7 @@ filters:
   min_amount: {amount: 5.0e+7, window: 20}   # entry：近 20 日日均成交额 ≥ 5000 万
 points:
   max_positions: 10
-  freq: weekly             # 新买入与条件卖出每周检查；止损类每日检查
+  freq: monthly            # 新买入与条件卖出每月首个交易日检查；止损类每日检查
   buy:
     industry_cheap: {pct: 0.7}       # 行业内估值便宜
     dividend_steady: {times: 3}      # 近 5 年分红 ≥ 3 次（质量 / 股东回报）
@@ -35,5 +37,5 @@ points:
     industry_expensive: {pct: 0.2}   # 行业内估值变贵或转亏
     forecast_negative: {}
   rank_exit: 0.3
-  trailing_stop: 0.25
+  trailing_stop: null      # 移动止盈在研发区有害（25%：年化 10.4% → 3.6%）
   industry_max: 3
