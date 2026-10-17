@@ -25,7 +25,7 @@ from ..paths import REPORT_DIR
 
 FOLDS = (("F1", "2018-01-01", "2020-12-31", "2021-01-01", "2021-12-31"),
          ("F2", "2018-01-01", "2021-12-31", "2022-01-01", "2022-12-31"))
-SIGNAL_KEYS = ("buy", "buy_any", "avoid", "sell", "regime", "freq")   # 改变 PointSignal 的 points 子项
+SIGNAL_KEYS = ("buy", "buy_any", "avoid", "sell", "regime", "freq", "deal_price")   # 改变 PointSignal 的 points 子项（deal_price 决定 fill）
 STEP = 42   # 多起点间隔（交易日，约 2 个月）
 PARTIAL_DIR = REPORT_DIR / "logs"
 

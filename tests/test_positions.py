@@ -206,3 +206,12 @@ def test_vwap_fill_entry_and_accounting():
     assert rep["nav"].iloc[1] == pytest.approx(1e6 * 1.1)   # 均价买入、收盘计价：当天 +10%
     sell_day = [t.date for t in sim.trades if t.side == "sell"][0]
     assert rep.loc[sell_day, "nav"] == pytest.approx(1e6)  # 均价卖出 10 → 回到成本
+
+
+def test_grid_signal_key_includes_deal_price():
+    from stockanalysis.config import load_pool
+    from stockanalysis.research.points_grid import _signal_key
+
+    a = load_pool("short_reversal", sets=["points.deal_price=close"])
+    b = load_pool("short_reversal", sets=["points.deal_price=vwap"])
+    assert _signal_key(a) != _signal_key(b)              # 成交价不同不能复用同一 PointSignal
