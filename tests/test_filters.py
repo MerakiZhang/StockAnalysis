@@ -105,3 +105,14 @@ def test_combine_masks_splits_by_scope():
     assert not exit_ok["SZ000001"].any() and exit_ok["SZ300001"].all()
     assert not entry_ok["SZ300001"].any() and entry_ok["SZ000001"].all()
 
+
+
+def test_limit_hits_on_open_price():
+    close = pd.DataFrame({"SH600000": [10.0, 10.5, 10.0], "SZ300001": [10.0, 10.0, 10.0]},
+                         index=pd.bdate_range("2024-01-02", periods=3))
+    opn = pd.DataFrame({"SH600000": [10.0, 11.0, 9.0], "SZ300001": [10.0, 11.0, 10.0]}, index=close.index)
+    up, down = F.limit_hits(close, price=opn)
+    assert up.iloc[1]["SH600000"] and not up.iloc[1]["SZ300001"]   # 主板开盘 +10% 封板；创业板 20% 未到
+    assert down.iloc[2]["SH600000"]                                # 开盘 9.0 较前收 10.5 跌超 10%
+    up_c, _ = F.limit_hits(close)
+    assert not up_c.iloc[1]["SH600000"]                            # 收盘只涨 5%：按收盘不算涨停

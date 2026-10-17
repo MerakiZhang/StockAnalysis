@@ -7,7 +7,7 @@ A 股全市场规则选股程序。流程：全市场 → 剔除烂股 → 按�
 |------|------|------|------|------------------------------|---------------------------|
 | long | production | 质量价值 + 分红 + 预期，持有数月到数年 | 中证800 | +15.7% / +15.5% | +12.2% / +7.6% |
 | short_reversal | production（偏弱） | 急跌 / RSI 低位反转，持有 5 天 | 中证1000 | +5.1% / +4.0% | +8.2% / +2.0% |
-| short_breakout | observe | 放量突破（对照池） | 中证1000 | -3.6% / -4.8% | -6.5% / -11.7% |
+| short_breakout | observe（已停止每日出池） | 放量突破（对照池） | 中证1000 | -3.6% / -4.8% | -6.5% / -11.7% |
 
 均为扣除成本（佣金 + 印花税 + 滑点）后的口径，单一起点回测；6 个错开建仓日合成的保留集结果
 （long +13.0% / +8.8%，short_reversal +7.4% / +1.8%，short_breakout -6.7% / -11.4%）结论一致。
@@ -43,7 +43,13 @@ python -X utf8 -m stockanalysis select --pool all          # 或 --pool long
 #    持仓（买入价、收益、卖出线）、次日计划买入 / 卖出（原因）、接近买点名单、长桥体检
 #    --no-health 跳过长桥体检
 
-# 3. 只比对行情数据版本
+# 3. 实盘跟踪报告：data/reports/track_{pool}.md（实盘净值 / 超额、成交、已发布股池核对、与回测同长度区间比较）
+python -X utf8 -m stockanalysis track --pool all
+
+# 4. 改了某池规则后：新规则从某个信号日起生效（开新跟踪段，旧段的实盘记录不变）；不执行则 select 会报错
+python -X utf8 -m stockanalysis track --pool long --new-segment 2026-11-02
+
+# 5. 只比对行情数据版本
 python -X utf8 -m stockanalysis sync --check
 ```
 

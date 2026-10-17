@@ -64,7 +64,8 @@ stockanalysis/
              signal.py   行情上下文 + 过滤面板（exit / entry 合成）
              schedule.py     信号日日程（daily / weekly / monthly）
              store.py        股池 CSV 与简报读写
-             daily.py        每日选股流程（按池类型分流）
+             daily.py        每日选股流程
+             segments.py     实盘跟踪段：各段存档配置、段间持仓衔接（live_chain，选股与 track 共用）
   backtest/  points_engine.py  买卖点池自记账回测（成本、涨跌停、停牌顺延、逐日自检）
              metrics.py      区间指标（复利口径）与区间切分
              runner.py       回测区间（保留集保护）与单池回测流程（按池类型分流）
@@ -72,9 +73,10 @@ stockanalysis/
              points_grid.py  买卖点参数网格 + 多起点合成 + 滚动验证
              quality_check.py  烂股剔除效果体检
              consistency.py  防未来检查（前缀一致性）
+             track.py        实盘跟踪报告（各段记账衔接、已发布股池核对、回测同长度区间分位）
              metrics.py reports.py
   cli/       common.py   公共参数（--pool / --set / --show-holdout / --tag / 数据同步）
-             select backtest quality event_study points_grid check sync update_data
+             select backtest quality event_study points_grid check track sync update_data
 tests/       与包结构对应的单元测试
 data/        pool/（入库）· reports/ raw/{akshare,baostock,longbridge}/ panel/（不入库）
 ```
@@ -97,7 +99,7 @@ selection/filters.py（exit / entry）   features/conditions.py（CONDITIONS） 
                                            │
                        selection/positions.py：simulate()（逐日：执行昨日计划 → 更新持仓 → 判断卖点 → 排队补位）
                          │                                           │
-     select：points_daily.py 从 points.live_start 推演到 T          backtest：points_engine.py 记账（含成本）
+     select：points_daily.py 按跟踪段推演到 T                      backtest：points_engine.py 记账（含成本）
              → data/pool/{pool}/{T}.csv + 简报（卖出线、计划、体检）     research：event-study / points-grid
 ```
 

@@ -119,6 +119,7 @@ def run_grid(name: str, vary: list[str], base_sets: list[str] | None = None, tar
                     "最大回撤": full.get("abs_mdd"), "超额回撤": full.get("mdd"), "交易笔数": res.get("trades", 0),
                     "胜率": res.get("win_rate"), "盈亏比": res.get("payoff"), "平均持有": res.get("avg_days"),
                     "平均持仓": res.get("avg_pos"), "年化成本": full.get("cost")})
+        row["最大单票权重"] = float(np.nanmax([r["report"]["max_w"].max() for r in runs]))
         if len(runs) > 1:
             each = [r.get("ann") for r in runs]
             row.update({"起点最差年化": float(np.nanmin(each)), "起点最好年化": float(np.nanmax(each))})
@@ -139,7 +140,7 @@ def run_grid(name: str, vary: list[str], base_sets: list[str] | None = None, tar
         wf.append({"折": fold, "选优区间": f"{ts[:4]}~{te[:4]}", "选中方案": best["方案"],
                    "选优目标值": best[f"{fold}选优"], "检验区间": vs[:4], "检验年化": best[f"{fold}检验"],
                    "检验区间全部方案中位数": table[f"{fold}检验"].median()})
-    pct_cols = [c for c in table.columns if c.endswith("年化") or c in ("最大回撤", "超额回撤", "胜率", "年化成本")
+    pct_cols = [c for c in table.columns if c.endswith("年化") or c in ("最大回撤", "超额回撤", "胜率", "年化成本", "最大单票权重")
                 or c.endswith("检验")]
     shown = table.sort_values("年化", ascending=False).copy()   # 先按数值排序，再格式化成百分比
     for c in pct_cols:

@@ -93,9 +93,10 @@ def limit_threshold(close: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(thr, index=close.index, columns=close.columns)
 
 
-def limit_hits(close: pd.DataFrame, tol: float = 0.005) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(涨停, 跌停) 布尔面板：收盘涨跌幅达到幅度 - tol。"""
-    ret = close.pct_change(fill_method=None)
+def limit_hits(close: pd.DataFrame, tol: float = 0.005,
+               price: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(涨停, 跌停) 布尔面板：price（默认收盘价，可传开盘价）相对前收盘的涨跌幅达到幅度 - tol。"""
+    ret = close.pct_change(fill_method=None) if price is None else price / close.shift(1) - 1
     thr = limit_threshold(close)
     return (ret >= thr - tol).fillna(False), (ret <= -(thr - tol)).fillna(False)
 

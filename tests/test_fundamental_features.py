@@ -57,3 +57,40 @@ def test_event_rolling_window():
     assert w.loc["2020-07-01", "A"] == 3
     assert w.loc["2021-01-06", "A"] == 2                     # 一年后第一笔滚出
     assert (w["B"] == 0).all()
+
+
+def test_ep3y_needs_three_consecutive_annuals_and_disclosure(monkeypatch):
+    cal = pd.bdate_range("2018-01-01", "2023-06-30")
+    a, b = "SH600000", "SH600001"
+    close = pd.DataFrame(10.0, index=cal, columns=[a, b])
+    factor = pd.DataFrame(1.0, index=cal, columns=[a, b])
+    yj = pd.concat([yjbb_rows(a, [("20181231", 0.5, 5, 50), ("20191231", 1.0, 5, 100), ("20201231", 1.5, 5, 150),
+                                  ("20211231", 2.0, 5, 200)]),
+                    yjbb_rows(b, [("20181231", 1.0, 5, 50), ("20201231", 1.0, 5, 50), ("20211231", 1.0, 5, 50)])])
+    xj = yj.rename(columns={"netprofit": "ocf"})[["qlib_code", "period", "available_date", "ocf"]]
+    monkeypatch.setattr(S.fd, "load_yjbb_all", lambda start_year=2012: yj)
+    monkeypatch.setattr(S.fd, "load_xjll_all", lambda start_year=2012: xj)
+    monkeypatch.setattr(S.fd, "AKSHARE_DIR", S.fd.AKSHARE_DIR.parent / "__nonexistent__")
+    f = S.build_fundamental([a, b], "2019-01-01", "2023-06-30", close, factor)["ep3y"]
+    assert np.isnan(f.loc["2021-04-29", a])                          # 2020 年报 4/30 才可见
+    assert f.loc["2021-05-06", a] == pytest.approx(1.0 / 10)         # (0.5 + 1.0 + 1.5) / 3 / 10
+    assert f.loc["2022-05-06", a] == pytest.approx(1.5 / 10)
+    assert f[b].isna().all()                                         # 缺 2019 年报：始终凑不出连续 3 年
+
+
+def test_industry_value_basis(monkeypatch):
+    from stockanalysis.features import conditions as C
+
+    codes = [f"SH60000{i}" for i in range(6)]
+    idx = pd.bdate_range("2024-01-01", periods=2)
+    row = lambda v: pd.DataFrame([v, v], index=idx, columns=codes, dtype=float)  # noqa: E731
+    fund = {"ep_ttm": row([0.10, 0.08, 0.06, 0.04, 0.02, -0.01]),      # 最后一只亏损
+            "ep3y": row([0.01, 0.02, 0.03, 0.04, 0.05, 0.06]),         # 3 年平均口径排序相反
+            "bp": row([0.2, 0.4, 0.6, 0.8, 1.0, 1.2])}
+    ctx = {"_fund": fund, "close": row([10.0] * 6)}
+    monkeypatch.setattr(S, "industry_map", lambda: pd.Series("银行Ⅱ", index=codes))
+    ep = C.industry_cheap(ctx, pct=0.8)
+    assert list(ep.iloc[0]) == [True, True, False, False, False, False]   # 5 只盈利股中前 40%
+    e3 = C.industry_cheap(ctx, pct=0.8, basis="ep3y")
+    assert list(e3.iloc[0]) == [False, False, False, True, True, False]   # 亏损股仍不计
+    assert C.industry_expensive(ctx, pct=0.2).iloc[0, -1]                  # 转亏即"变贵"

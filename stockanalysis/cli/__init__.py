@@ -15,6 +15,7 @@ COMMANDS = {  # 命令名 -> 模块名
     "event-study": "event_study",
     "points-grid": "points_grid",
     "check": "check",
+    "track": "track",
     "sync": "sync",
     "update-data": "update_data",
 }

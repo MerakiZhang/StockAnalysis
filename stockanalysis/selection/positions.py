@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
+from functools import lru_cache
+
 import numpy as np
 import pandas as pd
 
@@ -53,8 +55,9 @@ def sell_reasons(p: Position, i: int, j: int, ps, spec) -> list[str]:
     out = []
     if not ps.exit_ok[i, j]:
         out.append("持有规则不通过")
+    out += [name for name, hit in ps.sell_hits.items()
+            if hit[i, j] and (ps.signal_day[i] or name in spec.sell_daily)]
     if ps.signal_day[i]:
-        out += [name for name, hit in ps.sell_hits.items() if hit[i, j]]
         if spec.rank_exit is not None and np.isfinite(ps.score_pct[i, j]) and ps.score_pct[i, j] < spec.rank_exit:
             out.append(f"优先分跌出前 {1 - spec.rank_exit:.0%}")
     c = ps.close[i, j]
@@ -72,6 +75,27 @@ def sell_reasons(p: Position, i: int, j: int, ps, spec) -> list[str]:
     if spec.regime_exit and not ps.regime_ok[i]:
         out.append("择时清仓")
     return out
+
+
+@lru_cache(maxsize=1)
+def _sw_l1() -> dict[str, str]:
+    import yaml
+
+    from ..paths import SW_L1
+
+    raw = yaml.safe_load(SW_L1.read_text(encoding="utf-8")) or {}
+    return {ind: l1 for l1, inds in raw.items() for ind in inds}
+
+
+def sector_of(industry: str | None, groups: dict) -> str | None:
+    """二级行业 → 大类：申万一级，sector_groups 中列出的一级再合并；未映射的二级自成一类。"""
+    if industry is None:
+        return None
+    l1 = _sw_l1().get(industry, industry)
+    for g, members in (groups or {}).items():
+        if l1 in members:
+            return g
+    return l1
 
 
 def buy_reason(i: int, j: int, ps, spec, filler: bool = False) -> str:
@@ -97,10 +121,17 @@ def decide(positions: dict[str, Position], i: int, ps, spec) -> tuple[list[tuple
         return sells, buys
 
     ind_count: dict[str, int] = {}
+    sec_count: dict[str, int] = {}
+
+    def sector(j: int):
+        return sector_of(ps.industry[j], spec.sector_groups) if spec.sector_max is not None else None
+
     for c in remain:
-        k = ps.industry[col[c]]
+        k, s = ps.industry[col[c]], sector(col[c])
         if k is not None:
             ind_count[k] = ind_count.get(k, 0) + 1
+        if s is not None:
+            sec_count[s] = sec_count.get(s, 0) + 1
     held = set(positions)
     chosen: set[str] = set()
 
@@ -120,10 +151,15 @@ def decide(positions: dict[str, Position], i: int, ps, spec) -> tuple[list[tuple
             k = ps.industry[j]
             if spec.industry_max is not None and k is not None and ind_count.get(k, 0) >= spec.industry_max:
                 continue
+            s = sector(j)
+            if s is not None and sec_count.get(s, 0) >= spec.sector_max:
+                continue
             buys.append((code, buy_reason(i, j, ps, spec, filler)))
             chosen.add(code)
             if k is not None:
                 ind_count[k] = ind_count.get(k, 0) + 1
+            if s is not None:
+                sec_count[s] = sec_count.get(s, 0) + 1
             slots -= 1
 
     take(ps.buy[i], filler=False)

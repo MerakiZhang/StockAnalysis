@@ -28,7 +28,9 @@ def _bench_returns(symbol: str, dates: pd.DatetimeIndex) -> pd.Series:
     return c.ffill().pct_change(fill_method=None).fillna(0.0)
 
 
-def account(sim, ps, pool, bench: pd.Series | None = None) -> pd.DataFrame:
+def account(sim, ps, pool, bench: pd.Series | None = None, state: dict | None = None) -> pd.DataFrame:
+    """逐日记账。state：起始账户 {cash, value: {代码: 收盘市值}, last: {代码: 复权收盘}}（跟踪段衔接用），
+    默认 pool.account 现金空仓；期末账户写入 report.attrs["state"]。"""
     cost = pool.cost
     comm, stamp, slip = float(cost["commission"]), float(cost["stamp_tax"]), float(cost.get("slippage", 0.0))
     min_cost = float(cost.get("min_cost", 5))
@@ -42,7 +44,12 @@ def account(sim, ps, pool, bench: pd.Series | None = None) -> pd.DataFrame:
     for t in sim.trades:
         by_day.setdefault(t.date, []).append(t)
 
-    cash, value, last = float(pool.account), {}, {}
+    if state is None:
+        cash, value, last = float(pool.account), {}, {}
+    else:
+        cash, value, last = float(state["cash"]), dict(state["value"]), dict(state["last"])
+    max_w = pool.points.max_weight
+    trim: set[str] = set()   # 上一检查日超过权重上限、今日减到 1 / n_max 的股票
     rows = []
     for i, d in enumerate(sim.dates):
         nav_prev = cash + sum(value.values())
@@ -68,6 +75,20 @@ def account(sim, ps, pool, bench: pd.Series | None = None) -> pd.DataFrame:
             cash += v - f
             fees, traded = fees + f, traded + v
         nav_now = cash + sum(value.values())
+        for code in sorted(trim & set(value)):
+            j = col[code]
+            excess = value[code] - nav_now / n_max
+            if excess <= 0 or not ps.can_sell[i, j]:
+                continue
+            c, px = ps.close[i, j], ps.fill[i, j]
+            v = excess * (px / c) if np.isfinite(c) and c > 0 and np.isfinite(px) else excess   # 收盘市值 → 成交额
+            pnl += v - excess
+            value[code] -= excess
+            f = fee(v, sell=True)
+            cash += v - f
+            fees, traded = fees + f, traded + v
+        trim = set()
+        nav_now = cash + sum(value.values())
         for t in (x for x in todays if x.side == "buy"):
             target = nav_now / n_max
             rate = comm + slip
@@ -83,11 +104,15 @@ def account(sim, ps, pool, bench: pd.Series | None = None) -> pd.DataFrame:
         if set(value) != held:   # 与模拟器持仓逐日一致（同一实现的自检）
             raise AssertionError(f"{d.date()} 记账持仓 {sorted(value)} 与模拟器 {sorted(held)} 不一致")
         nav = cash + sum(value.values())
+        if max_w is not None and ps.signal_day[i] and nav > 0:
+            trim = {c for c, v in value.items() if v > max_w * nav}
         rows.append({"return": pnl / nav_prev if nav_prev > 0 else 0.0, "cost": fees / nav_prev if nav_prev > 0 else 0.0,
                      "turnover": traded / nav_prev if nav_prev > 0 else 0.0,
-                     "n_pos": len(value), "cash": cash / nav if nav > 0 else 1.0, "nav": nav})
+                     "n_pos": len(value), "cash": cash / nav if nav > 0 else 1.0, "nav": nav,
+                     "max_w": max(value.values()) / nav if value and nav > 0 else 0.0})
     report = pd.DataFrame(rows, index=sim.dates)
     report["bench"] = bench.reindex(sim.dates).fillna(0.0) if bench is not None else 0.0
+    report.attrs["state"] = {"cash": cash, "value": dict(value), "last": dict(last)}
     return report
 
 

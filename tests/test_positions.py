@@ -225,3 +225,44 @@ def test_last_day_of_window_uses_calendar_for_signal_day():
     assert m.tolist() == [True, False, True]                            # 实盘 T = 月末 → 当天是检查日
     assert _signal_days(idx, "monthly", lambda d, f: False).tolist() == [True, False, False]
     assert _signal_days(idx[:1], "monthly", lambda d, f: False).tolist() == [True]   # 单日窗口 = 首次建仓
+
+
+def test_sell_daily_checked_on_non_signal_day():
+    buy = np.zeros((len(DATES), 3), bool)
+    buy[0, 0] = True
+    hit = np.zeros((len(DATES), 3), bool)
+    hit[3, 0] = True                                            # 第 3 天（非检查日）出现事件卖点
+    sig = np.zeros(len(DATES), bool)
+    sig[0] = True
+    ps = make_ps(buy=buy, sell_hits={"ev": hit}, signal_day=sig)
+    assert "SH600000" in simulate(ps, spec(sell={"ev": {}})).holdings[5]            # 按 freq：等到检查日
+    sim = simulate(ps, spec(sell={"ev": {}}, sell_daily=["ev"]))
+    assert "SH600000" not in sim.holdings[4]                                         # 每日检查：次日卖出
+    assert [t.reason for t in sim.trades if t.side == "sell"] == ["ev"]
+
+
+def test_max_weight_trims_overweight_position():
+    buy = np.zeros((len(DATES), 2), bool)
+    buy[0, :] = True
+    close = np.full((len(DATES), 2), 10.0)
+    close[3:, 0] = 30.0                                         # 第 0 只涨到 3 倍：权重 75%
+    ps = make_ps(n_codes=2, buy=buy, close=close)
+    pool = lambda sp: SimpleNamespace(account=1e6, points=sp,  # noqa: E731
+                                      cost={"commission": 0.0, "stamp_tax": 0.0, "slippage": 0.0, "min_cost": 0.0})
+    sp0, sp1 = spec(), spec(max_weight=0.6)
+    r0 = account(simulate(ps, sp0), ps, pool(sp0))
+    r1 = account(simulate(ps, sp1), ps, pool(sp1))
+    assert r0["cash"].iloc[-1] == pytest.approx(0.0)
+    assert r1["cash"].iloc[4] == pytest.approx(0.25) and r1["turnover"].iloc[4] > 0  # 1.5M 减到净值 2M 的 1/2 → 现金 25%
+    assert r1["nav"].iloc[-1] == pytest.approx(r0["nav"].iloc[-1])                   # 价格不变时不影响净值
+
+
+def test_sector_max_uses_sw_l1_and_groups():
+    buy = np.ones((len(DATES), 3), bool)
+    score = np.tile([3.0, 2.0, 1.0], (len(DATES), 1))
+    ind = ["证券Ⅱ", "保险Ⅱ", "银行Ⅱ"]
+    sim = simulate(make_ps(buy=buy, score=score, industry=ind), spec(sector_max=1))
+    assert set(sim.holdings[1]) == {"SH600000", "SH600002"}   # 证券、保险同属非银金融，只取 1 只；银行另算
+    sim = simulate(make_ps(buy=buy, score=score, industry=ind),
+                   spec(sector_max=1, sector_groups={"大金融": ["银行", "非银金融"]}))
+    assert set(sim.holdings[1]) == {"SH600000"}               # 合并为大金融后只能 1 只

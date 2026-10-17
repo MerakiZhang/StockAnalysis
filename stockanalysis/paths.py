@@ -3,6 +3,7 @@
     config/global.yaml          系统级设置：资金、板块权限、成本、回测窗口、数据同步
     config/pool_defaults.yaml   所有股池共用的选股规则（打分器占位、过滤规则）
     config/pools/<name>.yaml    单个股池：只写与默认不同的项
+    config/sw_l1.yaml           申万二级 → 一级（大类持仓上限用）
     data/pool/<name>/           股池输出（入库，实盘跟踪记录）
     data/reports/               研究报告（不入库）
     data/raw/                   可重新下载的原始缓存（不入库），统一 <数据集>/<单元>.parquet
@@ -22,6 +23,7 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 GLOBAL_CONFIG = CONFIG_DIR / "global.yaml"
 POOL_DEFAULTS = CONFIG_DIR / "pool_defaults.yaml"
 POOLS_DIR = CONFIG_DIR / "pools"
+SW_L1 = CONFIG_DIR / "sw_l1.yaml"
 
 DATA_DIR = PROJECT_ROOT / "data"
 POOL_OUTPUT_DIR = DATA_DIR / "pool"
