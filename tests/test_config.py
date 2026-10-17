@@ -166,7 +166,7 @@ RULE_POOLS = ("long", "short_reversal", "short_breakout")               # 全市
 def test_repo_pools_load_and_validate():
     for name in list_pools():
         spec = load_pool(name)
-        assert spec.status == "observe"
+        assert spec.status in ("production", "observe")
         assert next(iter(spec.filters)) == "in_universe"
         assert spec.filters["boards"] == {"boards": spec.raw["account_boards"]}   # 板块权限取全局设置
     for name in RULE_POOLS:

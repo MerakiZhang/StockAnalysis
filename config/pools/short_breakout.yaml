@@ -4,8 +4,8 @@
 # 参数 2026-10-17 定稿：止损 5%、不设移动止盈、持有 10 天。研发区 24 个方案全部年化为负（最好 -3.1%），
 #   作为对照池保留跟踪。
 name: short_breakout
-enabled: false
-status: observe
+enabled: true
+status: observe         # 2026-10-17 保留集评估后定（见 RULES.md）
 universe: all
 benchmark: SH000852        # 中证1000
 strategy:
@@ -16,6 +16,7 @@ scorer:
 filters:
   min_amount: {amount: 1.0e+8, window: 20}
 points:
+  live_start: '2026-10-15'  # 实盘跟踪起始信号日（首期建仓），之后每日选股从这天推演
   max_positions: 10
   buy:
     breakout: {n: 20, amt: 1.5}

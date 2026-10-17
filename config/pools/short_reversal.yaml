@@ -4,8 +4,8 @@
 # 参数 2026-10-17 定稿：买点取"急跌 / RSI 低位金叉"任一，持有 5 天，止损 8%，不设止盈，不择时。
 #   该组在止损 5%/8%/不设、止盈 8%/15%/不设的邻域内年化都在 5%~6%；但持有 20 天转负、2022 年为负，结论偏弱。
 name: short_reversal
-enabled: false
-status: observe
+enabled: true
+status: production         # 2026-10-17 保留集评估后定（见 RULES.md）
 universe: all
 benchmark: SH000852        # 中证1000（本地中证全指 SH000985 缺 667 个交易日，不可用）
 strategy:
@@ -16,6 +16,7 @@ scorer:
 filters:
   min_amount: {amount: 1.0e+8, window: 20}   # entry：近 20 日日均成交额 ≥ 1 亿
 points:
+  live_start: '2026-10-15'  # 实盘跟踪起始信号日（首期建仓），之后每日选股从这天推演
   max_positions: 10
   buy:
     industry_cheap: {pct: 0.5}       # 至少不贵：避免接垃圾股的反弹
