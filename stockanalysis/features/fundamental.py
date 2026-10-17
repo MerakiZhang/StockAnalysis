@@ -1,7 +1,6 @@
-"""补充基本面特征（Alpha158 没有的）：估值 / 股息 / 质量 / 成长。
+"""基本面逐日面板：估值 / 股息 / 质量 / 成长（供选股条件、优先分与烂股判定使用，不写入 cn_data）。
 
-作为 ML 特征经 StaticDataLoader 并入 Alpha158（不写入 cn_data），方向不需处理（模型自学），
-但统一为"有经济含义的比率"，便于截面标准化。
+统一为"有经济含义的比率"，便于截面排名。
 
 防未来函数：报告期数据从 available_date（实际披露日次日，缺失时为披露截止日）起可见；分红从预案公告日起可见。
 
@@ -11,6 +10,7 @@
 送转、分红前后保持连续。
 
     ep_ttm              EPS_TTM / 价格（盈利收益率，亏损为负）
+    ep3y                最近 3 个已披露年报 EPS 的均值 / 价格（平滑周期股盈利高点；不足 3 年为缺失）
     bp                  每股净资产 / 价格（PB 倒数）
     dividend_yield      过去 365 天已公告每股现金分红之和 / 价格
     dividend_continuity 过去 5 年有现金分红的公告次数
@@ -24,7 +24,7 @@ import pandas as pd
 
 from ..data import fundamental as fd
 
-FEATURES = ("ep_ttm", "bp", "dividend_yield", "dividend_continuity", "roe", "gross_margin",
+FEATURES = ("ep_ttm", "ep3y", "bp", "dividend_yield", "dividend_continuity", "roe", "gross_margin",
             "ocf_to_netprofit", "revenue_yoy", "netprofit_yoy")
 START_YEAR = 2012  # 报告期起始年（TTM 需要前一年）
 
@@ -106,6 +106,12 @@ def build_fundamental(codes: list[str], start: str, end: str, close: pd.DataFram
 
     eps_ttm = _latest_visible(_ttm(yj, "adj_eps"), "adj_eps_ttm", cal, codes)
     out["ep_ttm"] = eps_ttm / close_out
+    an = yj[yj["period"].str.endswith("1231")].dropna(subset=["adj_eps"]).sort_values(["qlib_code", "period"]).copy()
+    an["year"] = an["period"].str[:4].astype(int)
+    g = an.groupby("qlib_code")
+    an["adj_eps3y"] = g["adj_eps"].rolling(3, min_periods=3).mean().reset_index(level=0, drop=True)
+    an.loc[g["year"].shift(2) != an["year"] - 2, "adj_eps3y"] = np.nan   # 须连续 3 年
+    out["ep3y"] = _latest_visible(an, "adj_eps3y", cal, codes) / close_out
     out["bp"] = _latest_visible(yj, "adj_bps", cal, codes) / close_out
     for f in ("roe", "gross_margin", "revenue_yoy", "netprofit_yoy"):
         out[f] = _latest_visible(yj, f, cal, codes)
@@ -116,10 +122,11 @@ def build_fundamental(codes: list[str], start: str, end: str, close: pd.DataFram
     np_ttm = _latest_visible(_ttm(yj, "netprofit"), "netprofit_ttm", cal, codes)
     out["ocf_to_netprofit"] = ocf / np_ttm.where(np_ttm > 0)
 
-    frames = [pd.read_parquet(p) for p in sorted((fd.FUND_DIR / "fhps").glob("fhps_*.parquet"))
-              if int(p.stem.split("_")[1][:4]) >= START_YEAR]
-    if frames:
-        fh = pd.concat(frames, ignore_index=True)
+    try:
+        fh = fd._load_periods("fhps", START_YEAR)
+    except FileNotFoundError:
+        fh = None
+    if fh is not None:
         fh["dps"] = pd.to_numeric(fh["dps"], errors="coerce")
         fh = fh[fh["qlib_code"].isin(codes) & (fh["dps"] > 0) & fh["announce_date"].notna()].copy()
         fh = fh.drop_duplicates(["qlib_code", "period", "announce_date"])

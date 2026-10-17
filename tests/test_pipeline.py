@@ -1,6 +1,7 @@
 """区间切分、检查日日程、真实池配置校验、命令行。"""
 import numpy as np
 import pandas as pd
+import pytest
 
 from stockanalysis.backtest.metrics import segments
 from stockanalysis.config import list_pools, load_pool
@@ -50,3 +51,14 @@ def test_signal_mask_matches_period_ends():
     assert list(np.flatnonzero(signal_mask(days, "weekly"))) == [0, 4]   # 首日 + 第一周周五
     month = pd.bdate_range("2024-01-25", "2024-02-06")
     assert [d.date().isoformat() for d in month[signal_mask(month, "monthly")]] == ["2024-01-25", "2024-01-31"]
+
+
+def test_bench_returns_ffill_missing_day(monkeypatch):
+    import stockanalysis.data.market as M
+    from stockanalysis.backtest import points_engine as PE
+
+    dates = pd.bdate_range("2024-01-01", periods=4)
+    close = pd.DataFrame({"X": [100.0, np.nan, 110.0, 110.0]}, index=dates)
+    monkeypatch.setattr(M, "load_wide", lambda codes, s, e, fields: {"close": close})
+    r = PE._bench_returns("X", dates)
+    assert r.tolist() == [0.0, 0.0, pytest.approx(0.10), 0.0]   # 缺日记 0，次日拿到完整涨幅

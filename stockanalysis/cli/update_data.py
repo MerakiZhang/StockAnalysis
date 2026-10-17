@@ -5,7 +5,7 @@
     baostock      baostock 逐日 ST / 停牌 / 估值 / 换手率（逐股，首次全量约数小时）+ 行业快照
     market_temp   长桥 CLI 市场温度历史（2018 起）
 
-均为断点续传：已完整的缓存跳过，中断后重跑即可。
+均为断点续传：已完整的缓存跳过，中断后重跑即可。缓存位于 data/raw/，结束时重建 data/panel/ 派生表。
 """
 HELP = "更新补充数据缓存（akshare / baostock / 长桥 CLI）"
 
@@ -23,6 +23,7 @@ def add_arguments(p) -> None:
     p.add_argument("--start-year", type=int, default=2012, help="fundamental 起始报告期年份")
     p.add_argument("--events-start", default=EVENTS_START, help="events 起始日期")
     p.add_argument("--workers", type=int, default=4, help="baostock 并行下载进程数")
+    p.add_argument("--status", action="store_true", help="只显示各数据源截止日（对比最新交易日），不下载")
 
 
 def run(args) -> None:
@@ -31,6 +32,9 @@ def run(args) -> None:
     from ..data.market import latest_trade_date
     from ..data.sync import data_version
 
+    if args.status:
+        print_status()
+        return
     unknown = set(args.only) - set(SOURCES)
     if unknown:
         raise SystemExit(f"未知数据源 {sorted(unknown)}，可选 {SOURCES}")
@@ -71,4 +75,26 @@ def run(args) -> None:
             log(f"[market_temp] {len(mt)} 天，{mt.index.min().date()} ~ {mt.index.max().date()}")
         except Exception as e:  # noqa: BLE001
             log(f"[market_temp] 失败: {e}")
+    refresh_panels(log)
+    print_status()
     print(f"done {pd.Timestamp.now():%H:%M:%S}", flush=True)
+
+
+def print_status() -> None:
+    from ..data.freshness import freshness
+    from ..data.sync import data_version
+
+    print(f"\n数据截止（行情数据版本 {data_version()}）：", flush=True)
+    print(freshness().to_string(index=False), flush=True)
+
+
+def refresh_panels(log=print) -> None:
+    """重建 data/panel 派生表（源数据未变化的直接读取，不重建）。"""
+    from ..data.baostock_data import is_st_panel
+    from ..features.risk import risk_events
+
+    for name, fn in (("is_st", is_st_panel), ("risk_notice", risk_events)):
+        try:
+            log(f"[panel] {name}: {len(fn())} 行")
+        except Exception as e:  # noqa: BLE001 - 缺源数据时只告警
+            log(f"[panel] {name} 失败: {e}")

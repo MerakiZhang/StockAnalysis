@@ -117,33 +117,58 @@ def small_growth(ctx, np_yoy: float = 25, cap_lo: float = 20, cap_hi: float = 20
     return (cap >= cap_lo * YI) & (cap <= cap_hi * YI) & (_fund(ctx, "netprofit_yoy") >= np_yoy)
 
 
-def _industry_ep_rank(ctx) -> pd.DataFrame:
-    """EP（盈利收益率，亏损为 NaN）在同行业内的分位（越高越便宜）；行业不足 5 只不排名。缓存在 ctx。"""
+VALUE_BASES = ("ep", "ep3y", "ep_bp")
+
+
+def _industry_rank(ctx, x: pd.DataFrame) -> pd.DataFrame:
+    """x 在同行业内的分位（越高越大）；行业不足 5 只不排名。"""
+    from .fundamental import industry_map
+
+    ind = industry_map().reindex(x.columns)
+    out = pd.DataFrame(np.nan, index=x.index, columns=x.columns)
+    for _, cols in ind.dropna().groupby(ind.dropna()).groups.items():
+        cols = list(cols)
+        if len(cols) >= 5:
+            out[cols] = x[cols].rank(axis=1, pct=True)
+    return out
+
+
+def _industry_ep_rank(ctx, basis: str = "ep") -> pd.DataFrame:
+    """行业内估值分位（越高越便宜），亏损股（EP_TTM ≤ 0）不计。缓存在 ctx。
+
+    basis：ep = EP_TTM；ep3y = 近 3 年年报平均 EPS / 价格（平滑盈利周期）；ep_bp = EP 与 BP 行业内分位各半后再排名。
+    """
+    if basis not in VALUE_BASES:
+        raise ValueError(f"basis 须为 {VALUE_BASES}")
     cache = ctx.setdefault("_cond", {})
-    if "industry_ep_rank" not in cache:
-        from .fundamental import industry_map
-
-        ep = _fund(ctx, "ep_ttm").where(_fund(ctx, "ep_ttm") > 0)
-        ind = industry_map().reindex(ep.columns)
-        out = pd.DataFrame(np.nan, index=ep.index, columns=ep.columns)
-        for _, cols in ind.dropna().groupby(ind.dropna()).groups.items():
-            cols = list(cols)
-            if len(cols) >= 5:
-                out[cols] = ep[cols].rank(axis=1, pct=True)
-        cache["industry_ep_rank"] = out
-    return cache["industry_ep_rank"]
-
-
-@register("industry_cheap", "本项目·行业内估值", grid={"pct": [0.5, 0.7, 0.8]},
-          desc="EP（盈利收益率）在同行业内的分位 ≥ pct（越高越便宜），亏损股不计")
-def industry_cheap(ctx, pct: float = 0.7):
-    return _industry_ep_rank(ctx) >= pct
+    key = f"industry_rank_{basis}"
+    if key not in cache:
+        ep = _fund(ctx, "ep_ttm")
+        profitable = ep > 0
+        if basis == "ep":
+            out = _industry_rank(ctx, ep.where(profitable))
+        elif basis == "ep3y":
+            e3 = _fund(ctx, "ep3y")
+            out = _industry_rank(ctx, e3.where(profitable & (e3 > 0)))
+        else:
+            bp = _fund(ctx, "bp")
+            ok = profitable & (bp > 0)
+            mix = 0.5 * _industry_rank(ctx, ep.where(ok)) + 0.5 * _industry_rank(ctx, bp.where(ok))
+            out = _industry_rank(ctx, mix)
+        cache[key] = out
+    return cache[key]
 
 
-@register("industry_expensive", "本项目·行业内估值变贵（卖点候选）", grid={"pct": [0.1, 0.2, 0.3]},
-          desc="EP 在同行业内的分位 ≤ pct（越低越贵），或转为亏损")
-def industry_expensive(ctx, pct: float = 0.2):
-    return (_industry_ep_rank(ctx) <= pct) | (_fund(ctx, "ep_ttm") <= 0)
+@register("industry_cheap", "本项目·行业内估值", grid={"pct": [0.5, 0.7, 0.8], "basis": list(VALUE_BASES)},
+          desc="行业内估值分位 ≥ pct（越高越便宜），亏损股不计；basis 见 _industry_ep_rank")
+def industry_cheap(ctx, pct: float = 0.7, basis: str = "ep"):
+    return _industry_ep_rank(ctx, basis) >= pct
+
+
+@register("industry_expensive", "本项目·行业内估值变贵（卖点候选）", grid={"pct": [0.1, 0.2, 0.3], "basis": list(VALUE_BASES)},
+          desc="行业内估值分位 ≤ pct（越低越贵），或转为亏损")
+def industry_expensive(ctx, pct: float = 0.2, basis: str = "ep"):
+    return (_industry_ep_rank(ctx, basis) <= pct) | (_fund(ctx, "ep_ttm") <= 0)
 
 
 # ================================================================== 技术面（长桥筛选器 / 通达信）
@@ -340,6 +365,12 @@ def forecast_negative(ctx):
     return ev.forecast_score(ctx) < 0
 
 
+@register("profit_deteriorate", "本项目·业绩恶化预警（卖点候选）", grid={"yoy": [-30, -50]},
+          desc="最近已披露报告期净利润同比（年初累计口径，%）≤ yoy；披露日次日可见")
+def profit_deteriorate(ctx, yoy: float = -30):
+    return _fund(ctx, "netprofit_yoy") <= yoy
+
+
 @register("forecast_big", "同花顺·业绩大幅预增", grid={"chg": [50, 100]})
 def forecast_big(ctx, chg: float = 50):
     return ev.forecast_change(ctx) >= chg
@@ -376,7 +407,7 @@ CONTINUOUS = {
     "margin_buy_ratio": ev.margin_buy_ratio, "margin_bal_chg20": ev.margin_bal_chg20,
     "lhb_jg_net_recent5": ev.lhb_jg_net_recent5, "gdhs_change": ev.gdhs_change, "forecast_change": ev.forecast_change,
     # 基本面
-    **{f: (lambda f: lambda c: _fund(c, f))(f) for f in ("ep_ttm", "bp", "dividend_yield", "dividend_continuity",
+    **{f: (lambda f: lambda c: _fund(c, f))(f) for f in ("ep_ttm", "ep3y", "bp", "dividend_yield", "dividend_continuity",
                                                           "roe", "gross_margin", "ocf_to_netprofit",
                                                           "revenue_yoy", "netprofit_yoy")},
     "log_cap": lambda c: np.log(_cap(c)),

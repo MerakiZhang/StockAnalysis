@@ -1,4 +1,4 @@
-"""每日选股流程：确定信号日 → 买卖点模拟器从 points.live_start 推演到 T（selection/points_daily.py）→ 写股池与简报。"""
+"""每日选股流程：确定信号日 → 买卖点模拟器按跟踪段（selection/segments.py）推演到 T（selection/points_daily.py）→ 写股池与简报。"""
 from __future__ import annotations
 
 import pandas as pd
@@ -25,4 +25,4 @@ def run_selection(name: str, date: str | None = None, names: dict[str, str] | No
     pool = load_pool(name, sets=sets)
     t = signal_date(date)
     print(f"\n===== {name} 买卖点池 @ {t.date()}（status={pool.status}）=====", flush=True)
-    return run_points_selection(pool, t, names or {}, health=health)
+    return run_points_selection(pool, t, names or {}, health=health, tracked=not sets)

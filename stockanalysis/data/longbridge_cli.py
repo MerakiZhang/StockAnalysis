@@ -1,6 +1,6 @@
 """长桥 CLI 封装（本机 `longbridge` 已登录）：市场温度历史（可回测的择时输入）与实盘体检。
 
-    market_temperature(start, end)  A 股市场温度 / 估值 / 情绪（0~100），2018 起逐日；缓存 data/events/market_temp/<yyyy>
+    market_temperature(start, end)  A 股市场温度 / 估值 / 情绪（0~100），2018 起逐日；缓存 data/raw/longbridge/market_temp/<yyyy>
     health_check(codes)            入池股的当日资金流向（大 / 中 / 小单净流入）、机构评级、近期新闻与公告标题
 
 CLI 不可用、未登录或网络失败时只告警、返回空结果，不中断选股。
@@ -16,10 +16,10 @@ import subprocess
 
 import pandas as pd
 
-from ..paths import EVENTS_DIR
+from ..paths import LONGBRIDGE_DIR
 
 DEFAULT_EXE = os.path.expanduser(r"~\AppData\Local\Programs\longbridge\longbridge.exe")
-TEMP_DIR = EVENTS_DIR / "market_temp"
+TEMP_DIR = LONGBRIDGE_DIR / "market_temp"
 TIMEOUT = 60  # 秒
 
 

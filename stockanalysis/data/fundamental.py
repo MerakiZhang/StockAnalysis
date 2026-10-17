@@ -1,12 +1,12 @@
 """akshare 基本面数据抓取与本地缓存。
 
-数据落盘布局（data/fundamental/）：
-    yjbb/yjbb_<period>.parquet        业绩报表（全市场批量，按报告期）
-    fhps/fhps_<period>.parquet        分红送配（全市场批量，按报告期）
-    xjll/xjll_<period>.parquet        现金流量表（全市场批量，按报告期）
-    yysj/yysj_<period>.parquet        定期报告实际披露日（全市场批量，按报告期）
-    yjyg/yjyg_<period>.parquet        业绩预告（含公告日期）
-    spot/spot_<yyyymmdd>.parquet      当日快照（名称/ST 状态）
+数据落盘布局（data/raw/akshare/）：
+    yjbb/<period>.parquet        业绩报表（全市场批量，按报告期）
+    fhps/<period>.parquet        分红送配（全市场批量，按报告期）
+    xjll/<period>.parquet        现金流量表（全市场批量，按报告期）
+    yysj/<period>.parquet        定期报告实际披露日（全市场批量，按报告期）
+    yjyg/<period>.parquet        业绩预告（含公告日期）
+    spot/<yyyymmdd>.parquet      当日快照（名称），只留最新一份
 
 防未来函数：业绩报表的`最新公告日期`列是公司最新公告的日期（不是该报告的披露日），不能使用。
 可见日 = 实际披露日（yysj）的次日；没有实际披露日时按交易所披露截止规则：
@@ -21,10 +21,16 @@ import time
 
 import pandas as pd
 
-from ..paths import FUND_DIR
+from ..paths import AKSHARE_DIR
+from .cache import save_snapshot, snapshot_path
 
 # 报告期 -> 披露截止日（该报告数据从这天起才可见）
 DISCLOSURE_LAG = {"0331": ("0", "0430"), "0630": ("0", "0831"), "0930": ("0", "1031"), "1231": ("1", "0430")}
+
+
+def period_path(kind: str, period: str):
+    """按报告期缓存的文件路径：data/raw/akshare/<kind>/<period>.parquet。"""
+    return AKSHARE_DIR / kind / f"{period}.parquet"
 
 
 def available_date(period: str) -> pd.Timestamp:
@@ -134,7 +140,7 @@ def fetch_yjbb(period: str, use_cache: bool = True) -> pd.DataFrame:
     """业绩报表（全市场）。period 如 '20241231'。"""
     import akshare as ak
 
-    path = FUND_DIR / "yjbb" / f"yjbb_{period}.parquet"
+    path = period_path("yjbb", period)
     if use_cache and cache_valid(path, period):
         cached = pd.read_parquet(path)
         if set(YJBB_COLMAP.values()) <= set(cached.columns):
@@ -156,7 +162,7 @@ def fetch_fhps(period: str, use_cache: bool = True) -> pd.DataFrame:
     """分红送配（全市场）。period 如 '20241231'。"""
     import akshare as ak
 
-    path = FUND_DIR / "fhps" / f"fhps_{period}.parquet"
+    path = period_path("fhps", period)
     if use_cache and cache_valid(path, period):
         return pd.read_parquet(path)
     df = _retry(ak.stock_fhps_em, date=period)
@@ -182,7 +188,7 @@ def fetch_xjll(period: str, use_cache: bool = True) -> pd.DataFrame:
     """
     import akshare as ak
 
-    path = FUND_DIR / "xjll" / f"xjll_{period}.parquet"
+    path = period_path("xjll", period)
     if use_cache and cache_valid(path, period):
         return pd.read_parquet(path)
     df = _retry(ak.stock_xjll_em, date=period)
@@ -205,7 +211,7 @@ def fetch_yysj(period: str, use_cache: bool = True) -> pd.DataFrame:
     """定期报告实际披露日（沪深 + 北交所）。period 如 '20241231'。"""
     import akshare as ak
 
-    path = FUND_DIR / "yysj" / f"yysj_{period}.parquet"
+    path = period_path("yysj", period)
     if use_cache and cache_valid(path, period):
         return pd.read_parquet(path)
     frames = []
@@ -233,7 +239,7 @@ def _fetch_announced(kind: str, fn_name: str, colmap: dict, period: str, use_cac
     """按报告期抓取、带公告日期的全市场表（业绩预告）。"""
     import akshare as ak
 
-    path = FUND_DIR / kind / f"{kind}_{period}.parquet"
+    path = period_path(kind, period)
     if use_cache and cache_valid(path, period):
         return pd.read_parquet(path)
     df = _retry(getattr(ak, fn_name), date=period)
@@ -259,9 +265,8 @@ def fetch_yjyg(period: str, use_cache: bool = True) -> pd.DataFrame:
 
 def _load_periods(kind: str, start_year: int) -> pd.DataFrame:
     frames = []
-    for p in sorted((FUND_DIR / kind).glob(f"{kind}_*.parquet")):
-        period = p.stem.split("_")[1]
-        if int(period[:4]) >= start_year:
+    for p in sorted((AKSHARE_DIR / kind).glob("*.parquet")):
+        if int(p.stem[:4]) >= start_year:
             frames.append(pd.read_parquet(p))
     if not frames:
         raise FileNotFoundError(f"无 {kind} 缓存，请先运行 python -X utf8 -m stockanalysis update-data")
@@ -307,11 +312,10 @@ def load_yjyg_all(start_year: int = 2012) -> pd.DataFrame:
 
 
 def fetch_spot(use_cache: bool = True) -> pd.DataFrame:
-    """A股当日快照：code/name/is_st。当日缓存。"""
+    """A股当日快照：code/name。当日缓存，只留最新一份。"""
     import akshare as ak
 
-    today = pd.Timestamp.now().strftime("%Y%m%d")
-    path = FUND_DIR / "spot" / f"spot_{today}.parquet"
+    path = snapshot_path(AKSHARE_DIR / "spot")
     if use_cache and path.exists():
         return pd.read_parquet(path)
     df = _retry(ak.stock_zh_a_spot_em)
@@ -321,10 +325,7 @@ def fetch_spot(use_cache: bool = True) -> pd.DataFrame:
             "name": df["名称"],
         }
     )
-    out["is_st"] = out["name"].str.contains("ST", case=False, na=False)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(path, index=False)
-    return out
+    return save_snapshot(out, path.parent)
 
 
 def load_yjbb_all(start_year: int = 2012) -> pd.DataFrame:

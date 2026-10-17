@@ -85,6 +85,11 @@ def _build_points(name: str, raw: dict | None) -> PointsSpec:
         raise ValueError(f"池 '{name}'：points.deal_price 须为 {DEAL_PRICES}")
     if p.fill not in FILL_MODES:
         raise ValueError(f"池 '{name}'：points.fill 须为 {FILL_MODES}")
+    unknown = set(p.sell_daily) - set(p.sell)
+    if unknown:
+        raise ValueError(f"池 '{name}'：points.sell_daily {sorted(unknown)} 不在 points.sell 中")
+    if p.max_weight is not None and not (1 / p.max_positions <= p.max_weight <= 1):
+        raise ValueError(f"池 '{name}'：points.max_weight 须在 1/max_positions ~ 1 之间")
     if not p.buy and not p.buy_any and p.fill == "strict":
         raise ValueError(f"池 '{name}'：points 未设置任何买点条件")
     return p

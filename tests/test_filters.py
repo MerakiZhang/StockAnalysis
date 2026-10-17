@@ -19,7 +19,6 @@ def make_ctx(**over):
         "volume": pd.DataFrame(1e6, index=DATES, columns=CODES),
         "amount": pd.DataFrame(1e5, index=DATES, columns=CODES),  # 千元 → 1 亿元
         "membership": pd.DataFrame(True, index=DATES, columns=CODES),
-        "st_codes": set(),
     }
     ctx.update(over)
     return ctx
@@ -40,17 +39,6 @@ def test_in_universe_uses_membership():
     ok = F.in_universe(make_ctx(membership=mem))
     assert not ok.loc[DATES[:5], "SH600000"].any()
     assert ok.loc[DATES[5:], "SH600000"].all()
-
-
-def test_exclude_st_only_last_day():
-    ok = F.exclude_st(make_ctx(st_codes={"SZ000001"}))
-    assert not ok["SZ000001"].iloc[-1]
-    assert ok["SZ000001"].iloc[:-1].all()
-    assert ok.drop(columns="SZ000001").all().all()
-
-
-def test_exclude_st_empty_set_keeps_all():
-    assert F.exclude_st(make_ctx()).all().all()
 
 
 def test_boards():
@@ -117,3 +105,14 @@ def test_combine_masks_splits_by_scope():
     assert not exit_ok["SZ000001"].any() and exit_ok["SZ300001"].all()
     assert not entry_ok["SZ300001"].any() and entry_ok["SZ000001"].all()
 
+
+
+def test_limit_hits_on_open_price():
+    close = pd.DataFrame({"SH600000": [10.0, 10.5, 10.0], "SZ300001": [10.0, 10.0, 10.0]},
+                         index=pd.bdate_range("2024-01-02", periods=3))
+    opn = pd.DataFrame({"SH600000": [10.0, 11.0, 9.0], "SZ300001": [10.0, 11.0, 10.0]}, index=close.index)
+    up, down = F.limit_hits(close, price=opn)
+    assert up.iloc[1]["SH600000"] and not up.iloc[1]["SZ300001"]   # 主板开盘 +10% 封板；创业板 20% 未到
+    assert down.iloc[2]["SH600000"]                                # 开盘 9.0 较前收 10.5 跌超 10%
+    up_c, _ = F.limit_hits(close)
+    assert not up_c.iloc[1]["SH600000"]                            # 收盘只涨 5%：按收盘不算涨停

@@ -9,8 +9,7 @@ scope（注册时声明）：
 
 ctx（signal.build_ctx 生成）：
     close/volume/amount/... 行情宽表（float32，已对齐交易日历）
-    membership              当日是否为指数成分
-    st_codes                当前 ST 集合（仅实盘最新一天有值，历史回测为空集）
+    membership              当日是否在市（股票范围内）
 
 新增规则 = 在本文件写一个 @FILTERS.register(name, scope=...) 函数 + 池 yaml 的 filters 段声明。
 """
@@ -36,11 +35,6 @@ def _base(ctx: dict) -> pd.DataFrame:
     return ctx["close"]
 
 
-def _const(ctx: dict, value: bool) -> pd.DataFrame:
-    b = _base(ctx)
-    return pd.DataFrame(value, index=b.index, columns=b.columns)
-
-
 def _by_column(ctx: dict, flags: dict[str, bool] | pd.Series) -> pd.DataFrame:
     b = _base(ctx)
     row = pd.Series(flags).reindex(b.columns).fillna(False).astype(bool).to_numpy()
@@ -53,17 +47,6 @@ def in_universe(ctx: dict) -> pd.DataFrame:
     """当日在市（强制规则）。"""
     b = _base(ctx)
     return ctx["membership"].reindex(index=b.index, columns=b.columns).fillna(False).astype(bool)
-
-
-@FILTERS.register("exclude_st", scope="exit")
-def exclude_st(ctx: dict) -> pd.DataFrame:
-    """剔除 ST。只作用于最后一天：ST 只有当前快照，套用到历史会形成前视偏差。"""
-    ok = _const(ctx, True)
-    st = ctx.get("st_codes") or set()
-    if st and len(ok):
-        cols = ok.columns.isin(list(st))
-        ok.iloc[-1, cols] = False
-    return ok
 
 
 # ------------------------------------------------------------------ entry
@@ -105,9 +88,10 @@ def limit_threshold(close: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(thr, index=close.index, columns=close.columns)
 
 
-def limit_hits(close: pd.DataFrame, tol: float = 0.005) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """(涨停, 跌停) 布尔面板：收盘涨跌幅达到幅度 - tol。"""
-    ret = close.pct_change(fill_method=None)
+def limit_hits(close: pd.DataFrame, tol: float = 0.005,
+               price: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(涨停, 跌停) 布尔面板：price（默认收盘价，可传开盘价）相对前收盘的涨跌幅达到幅度 - tol。"""
+    ret = close.pct_change(fill_method=None) if price is None else price / close.shift(1) - 1
     thr = limit_threshold(close)
     return (ret >= thr - tol).fillna(False), (ret <= -(thr - tol)).fillna(False)
 

@@ -19,11 +19,10 @@ dist/
 .ipynb_checkpoints/
 
 # ===== 量化数据缓存（可重新下载/生成，体积大）=====
-# akshare 基本面原始数据（分红送配/估值/业绩报表，约 58MB）
-data/fundamental/
-# akshare 事件缓存 / baostock 缓存（可重新下载）
-data/events/
-data/baostock/
+# 原始缓存（akshare / baostock / 长桥，可重新下载，约 1.1GB）
+data/raw/
+# 由原始缓存生成的紧凑表（可随时重建）
+data/panel/
 # 脚本生成的报告（可再生产物）
 data/reports/
 # qlib 本地行情库（默认在 ~/.qlib，若软链进项目也忽略）

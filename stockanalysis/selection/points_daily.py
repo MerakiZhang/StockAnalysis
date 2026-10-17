@@ -1,6 +1,8 @@
-"""买卖点池每日选股：从 points.live_start（未设置则当日首次建仓）起用同一模拟器推演到信号日 T，输出：
+"""买卖点池每日选股：按跟踪段（selection/segments.py，第一段起点 = points.live_start，未设置则当日首次建仓）
+用同一模拟器推演到信号日 T，输出：
 
-    持仓    T 日收盘后的持仓：买入日 / 买入价 / 最新价 / 收益 / 持有天数 / 当前卖出线（止损价、移动止盈价、均线价、剩余天数）
+    持仓    T 日收盘后的持仓：买入日 / 买入价 / 最新价 / 收益 / 持有天数 / 当前权重 / 当前卖出线（止损价、移动止盈价、均线价、剩余天数）
+    数据    各数据源截止日，未覆盖信号日的标 ⚠（data/freshness.py）
     计划    T+1 收盘执行的计划买入（含买入原因、参考止损价）与计划卖出（含卖出原因）
     观察    接近买点：只差一个买点条件的股票（按优先分取前 10）
     体检    长桥 CLI：入池 / 计划买入股票的当日资金流向、机构评级、近期新闻与公告（只作人工参考）
@@ -63,18 +65,31 @@ def near_buy(ps, spec, i: int, held: set[str], limit: int = 10) -> pd.DataFrame:
                           "优先分": ps.score[i, j], "最新价": _raw(ps, i, j, ps.close[i, j])} for j in js])
 
 
-def run_points_selection(pool, t: pd.Timestamp, names: dict[str, str], health: bool = True, log=print):
-    from ..data.sync import data_version
-    from .points import build_point_signal
-    from .positions import simulate
+def _weights(legs) -> dict[str, float]:
+    """按各段记账（与回测同口径，段间衔接）得到 T 日收盘各持仓占净值的比例：买入时等权，之后随涨跌漂移。"""
+    from ..backtest.points_engine import account
 
+    state = None
+    for leg in legs:
+        state = account(leg.sim, leg.ps, leg.pool, state=state).attrs["state"]
+    nav = state["cash"] + sum(state["value"].values())
+    return {c: v / nav for c, v in state["value"].items()} if nav > 0 else {}
+
+
+def run_points_selection(pool, t: pd.Timestamp, names: dict[str, str], health: bool = True, log=print,
+                         tracked: bool = True):
+    """tracked=False（命令行 --set 临时改参数）：不读写跟踪段，按当前配置从 live_start 推演，简报注明。"""
+    from ..data.sync import data_version
+    from .segments import live_chain, rules_hash
+
+    segs = None if tracked else [{"start": str(pool.points.live_start or t.date()), "hash": rules_hash(pool.raw),
+                                  "config": pool.raw}]
+    legs = live_chain(pool, t, segs)
+    start = legs[0].start
+    log(f"[{pool.name}] 模拟 {start.date()} ~ {t.date()}，{len(legs)} 个跟踪段（与回测同一实现）")
+    pool, ps, sim = legs[-1].pool, legs[-1].ps, legs[-1].sim
     spec = pool.points
-    start = pd.Timestamp(spec.live_start) if spec.live_start else t
-    if start > t:
-        raise ValueError(f"points.live_start {start.date()} 晚于信号日 {t.date()}")
-    log(f"[{pool.name}] 模拟 {start.date()} ~ {t.date()}（与回测同一实现）")
-    ps = build_point_signal(pool, str(start.date()), str(t.date()))
-    sim = simulate(ps, spec)
+    weight = _weights(legs)
     i = len(ps.dates) - 1
     held = sim.holdings[-1]
     pend_sell = dict(sim.pending_sell)
@@ -87,7 +102,7 @@ def run_points_selection(pool, t: pd.Timestamp, names: dict[str, str], health: b
         rows.append({"code": code, "name": names.get(code, ""), "状态": "计划卖出" if code in pend_sell else "持有",
                      "买入日": p.entry_date.date(), "买入价": _raw(ps, i, j, p.entry_price), "最新价": px,
                      "收益%": (ps.close[i, j] / p.entry_price - 1) * 100 if np.isfinite(ps.close[i, j]) else np.nan,
-                     "持有天数": p.days, **_sell_lines(p, i, j, ps, spec),
+                     "持有天数": p.days, "权重%": weight.get(code, np.nan) * 100, **_sell_lines(p, i, j, ps, spec),
                      "买入原因": p.reason, "卖出原因": pend_sell.get(code, "")})
     for code, reason in sim.pending_buy:
         j = col[code]
@@ -111,14 +126,28 @@ def run_points_selection(pool, t: pd.Timestamp, names: dict[str, str], health: b
         if len(check):
             check.insert(1, "name", check["code"].map(lambda c: names.get(c, "")))
 
+    from ..data.freshness import freshness, lagging
+
     recent = [tr for tr in sim.trades if tr.date >= ps.dates[max(0, i - 4)]]
-    meta = {"data_version": data_version(), "start": start.date(), "lag_days": (pd.Timestamp.now().normalize() - t).days,
+    fresh = lagging(freshness(t))
+    if len(fresh):
+        log("[warn] 数据滞后：\n" + fresh.to_string(index=False))
+    meta = {"data_version": data_version(), "fresh": fresh, "start": start.date(), "tracked": tracked,
+            "n_legs": len(legs), "leg_start": legs[-1].start.date(),
+            "lag_days": (pd.Timestamp.now().normalize() - t).days,
             "regime_ok": bool(ps.regime_ok[i]), "signal_day": bool(ps.signal_day[i]),
             "n_eligible": int(ps.eligible[i].sum()), "n_buy": int(ps.buy[i].sum())}
     paths = save_points_pool(pool, t, table, near, check, recent, names, meta)
     log(table.to_string(index=False) if len(table) else "（空仓，无计划）")
     log(f"股池: {paths[0]}\n简报: {paths[1]}")
     return table
+
+
+def _fresh_lines(fresh: pd.DataFrame | None) -> list[str]:
+    """简报"数据截止"：全部到位一行带过；有滞后时列出滞后项。"""
+    if fresh is None or not len(fresh):
+        return ["> 数据截止：各数据源均已覆盖信号日"]
+    return ["> ⚠ 数据截止：以下数据未覆盖信号日（滞后部分沿用最近已有数据）", "", _md(fresh)]
 
 
 def _md(df: pd.DataFrame) -> str:
@@ -145,7 +174,11 @@ def save_points_pool(pool, t: pd.Timestamp, table, near, check, recent, names, m
         f"# {pool.name} 股池 {tag}", "", status_line, "",
         f"> 基于 {tag} 收盘数据，计划于其后首个交易日收盘执行（数据滞后 {meta['lag_days']} 个自然日）。",
         f"> 数据版本 {meta['data_version']} · 配置 {pool.config_hash} · 模拟起点 {meta['start']}"
-        f" · 持仓上限 {spec.max_positions} 只（等权）", "",
+        + (f"（第 {meta['n_legs']} 个跟踪段，自 {meta['leg_start']} 起）" if meta["n_legs"] > 1 else "")
+        + f" · 持仓上限 {spec.max_positions} 只（买入时等权"
+        + (f"，单票上限 {spec.max_weight:.0%}" if spec.max_weight else "") + "）",
+        *([] if meta["tracked"] else ["> ⚠ 临时配置（命令行 --set）：不读写跟踪段，不是实盘记录"]),
+        *_fresh_lines(meta.get("fresh")), "",
         f"- 今日{'可以' if meta['regime_ok'] else '不'}开新仓（择时）"
         + ("" if meta["signal_day"] else f"；非 {spec.freq} 检查日，只执行止损类卖点"),
         f"- 可买股票 {meta['n_eligible']} 只，其中满足买点 {meta['n_buy']} 只",

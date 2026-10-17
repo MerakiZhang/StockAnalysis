@@ -4,7 +4,7 @@
 # 参数 2026-10-17 定稿：止损 5%、不设移动止盈、持有 10 天。研发区 24 个方案全部年化为负（最好 -3.1%），
 #   作为对照池保留跟踪。
 name: short_breakout
-enabled: true
+enabled: false          # 2026-10-17 停止每日出池：研发区与保留集一贯为负，作为对照的结论已足够（配置与历史股池保留）
 status: observe         # 2026-10-17 保留集评估后定（见 RULES.md）
 universe: all
 benchmark: SH000852        # 中证1000

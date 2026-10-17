@@ -7,15 +7,16 @@ A 股全市场规则选股程序。流程：全市场 → 剔除烂股 → 按�
 |------|------|------|------|------------------------------|---------------------------|
 | long | production | 质量价值 + 分红 + 预期，持有数月到数年 | 中证800 | +15.7% / +15.5% | +12.2% / +7.6% |
 | short_reversal | production（偏弱） | 急跌 / RSI 低位反转，持有 5 天 | 中证1000 | +5.1% / +4.0% | +8.2% / +2.0% |
-| short_breakout | observe | 放量突破（对照池） | 中证1000 | -3.6% / -4.8% | -6.5% / -11.7% |
+| short_breakout | observe（已停止每日出池） | 放量突破（对照池） | 中证1000 | -3.6% / -4.8% | -6.5% / -11.7% |
 
-均为扣除成本（佣金 + 印花税 + 滑点）后的口径，单一起点回测；6 个错开建仓日合成的保留集结果
+均为扣除成本（佣金 + 印花税 + 滑点）后的口径，2026-10-17 冻结参数的单一起点回测；6 个错开建仓日合成的保留集结果
 （long +13.0% / +8.8%，short_reversal +7.4% / +1.8%，short_breakout -6.7% / -11.4%）结论一致。
+long 自 2026-10-19 起另启用单票权重上限 20% 与业绩预减每日检查（研发区 6 起点合成 10.41% → 10.67%，见 RULES 第 4 节）。
 
 **注意**：
 - 状态按事先定好的规则判定：研发区和保留集都满足"扣成本后绝对年化 > 0 且超额 > 0"才标 production。
 - short_reversal 虽然达标，但研发区参数邻域不稳（持有天数从 5 改为 20 即转负）、单一起点最大回撤约 -48%、
-  年化成本约 4.8%，仓位宜轻，并以 2026-10-15 起的实盘跟踪为准。
+  年化成本约 4.8%，且对滑点极敏感（千 1 → 千 2，研发区年化 5.6% → 2.3%），仓位宜轻，并以 2026-10-15 起的实盘跟踪为准。
 - long 的收益集中在少数股票（如 2020~2022 年的煤炭股），2018 年亏约 22%。
 - 规则、依据与评估记录见 `RULES.md`；代码架构、修改方法与防未来约定见 `ARCHITECTURE.md`；重构过程见 `REFACTOR_PLAN.md`。
 
@@ -35,6 +36,7 @@ conda activate qlib   # 含 qlib 0.9.7 / akshare / baostock / akquant / pytest�
 # 1. 更新补充数据（断点续传；首次全量约数小时，之后每日增量）
 python -X utf8 -m stockanalysis update-data                # 基本面 / 事件 / baostock / 市场温度
 python -X utf8 -m stockanalysis update-data --only events  # 只更新事件（两融、龙虎榜、公告等）
+python -X utf8 -m stockanalysis update-data --status       # 只看各数据源截止日（滞后的标 ⚠），不下载
 
 # 2. 生成当期股池（启动时自动比对 GitHub 行情数据版本，落后则下载并原子替换）
 python -X utf8 -m stockanalysis select --pool all          # 或 --pool long
@@ -42,7 +44,13 @@ python -X utf8 -m stockanalysis select --pool all          # 或 --pool long
 #    持仓（买入价、收益、卖出线）、次日计划买入 / 卖出（原因）、接近买点名单、长桥体检
 #    --no-health 跳过长桥体检
 
-# 3. 只比对行情数据版本
+# 3. 实盘跟踪报告：data/reports/track_{pool}.md（实盘净值 / 超额、成交、已发布股池核对、与回测同长度区间比较）
+python -X utf8 -m stockanalysis track --pool all
+
+# 4. 改了某池规则后：新规则从某个信号日起生效（开新跟踪段，旧段的实盘记录不变）；不执行则 select 会报错
+python -X utf8 -m stockanalysis track --pool long --new-segment 2026-11-02
+
+# 5. 只比对行情数据版本
 python -X utf8 -m stockanalysis sync --check
 ```
 
@@ -65,13 +73,16 @@ python -X utf8 -m pytest tests -q                                      # 单元�
 ## 配置与目录
 
 ```
-config/global.yaml          系统级：资金、账户板块权限、成本、撮合、回测窗口、数据同步
+config/global.yaml          系统级：资金、账户板块权限、成本、回测窗口、数据同步
 config/pool_defaults.yaml   所有股池共用的规则（烂股剔除、准入）——改一处，全部池生效
 config/pools/<name>.yaml    单个股池：基准、优先分、买卖点（points 段）；加池时复制一个现有池改名
+config/sw_l1.yaml           申万二级 → 一级（points.sector_max 大类持仓上限用）
 stockanalysis/              代码包：config / data / features / models / selection / backtest / research / cli
 tests/                      单元测试
-data/pool/<name>/           股池输出（入库，实盘跟踪记录）
-data/reports/ data/fundamental/ data/events/ data/baostock/   报告与数据缓存（不入库）
+data/pool/<name>/           股池输出（入库，实盘跟踪记录）；segments.json = 跟踪段（各段存档配置）
+data/reports/               研究报告（不入库）
+data/raw/{akshare,baostock,longbridge}/   原始数据缓存（不入库，可重新下载）
+data/panel/                 由 raw 生成的紧凑表（不入库，可随时重建）
 ```
 
 加股池、改买卖点、加选股条件等常见修改的具体做法见 `ARCHITECTURE.md` 开头的"怎么改"表。

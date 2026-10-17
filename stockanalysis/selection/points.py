@@ -5,7 +5,7 @@
     exit_ok    持有规则（烂股剔除等 exit 过滤）：不通过的持仓强制卖出
     eligible   可新买入（exit ∧ entry 过滤都通过）
     score      优先分（池 yaml 的 scorer，通常为 multifactor）；score_pct 为在可买股票中的分位
-    can_buy / can_sell   成交可行性：当日有成交且未涨停（买）/ 未跌停（卖）——用于 T+1 执行日
+    can_buy / can_sell   成交可行性：当日有成交且未涨停（买）/ 未跌停（卖）——用于 T+1 执行日；开盘成交时按开盘价判断
     regime_ok  择时：当日可开新仓
     signal_day 新买入与条件卖出的检查日（points.freq）
 
@@ -40,7 +40,7 @@ class PointSignal:
     signal_day: np.ndarray       # (交易日,)
     industry: list[str | None]
     extra: dict = field(default_factory=dict)   # 简报用：均线等卖出线、各买点条件面板
-    fill: np.ndarray | None = None   # 成交价（复权）；None = 收盘价。均价成交时为 vwap，缺失处回退收盘价
+    fill: np.ndarray | None = None   # 成交价（复权）；None = 收盘价。均价 / 开盘成交时为 vwap / open，缺失处回退收盘价
     colmap: dict[str, int] = field(init=False, repr=False)
 
     def __post_init__(self):
@@ -110,7 +110,7 @@ def build_point_signal(pool, start: str, end: str, ctx: dict | None = None, with
     score = raw.where(eligible | exit_ok)
     score_pct = raw.where(eligible).rank(axis=1, pct=True)
 
-    up, down = limit_hits(ctx["close"])
+    up, down = limit_hits(ctx["close"], price=ctx["open"] if spec.deal_price == "open" else None)
     traded = ctx["close"].notna() & (ctx["volume"].fillna(0) > 0)
     reg = regime.state(ctx, pool.benchmark, **spec.regime).reindex(ctx["close"].index).fillna(True)
 
@@ -131,7 +131,7 @@ def build_point_signal(pool, start: str, end: str, ctx: dict | None = None, with
         can_buy=cut(traded & ~up).astype(bool), can_sell=cut(traded & ~down).astype(bool),
         regime_ok=reg.loc[s:e].to_numpy(dtype=bool), signal_day=_signal_days(idx, spec.freq, is_signal_day),
         industry=[None if pd.isna(x) else str(x) for x in ind], extra=extra,
-        fill=cut(ctx["vwap"]).astype(np.float64) if spec.deal_price == "vwap" else None,
+        fill=cut(ctx[spec.deal_price]).astype(np.float64) if spec.deal_price in ("vwap", "open") else None,
     )
 
 

@@ -19,7 +19,7 @@ MANDATORY_FILTERS = ("in_universe",)   # 不可关闭
 TOP_LEVEL_KEYS = ("name", "enabled", "status", "universe", "benchmark", "scorer", "filters", "backtest", "cost",
                   "account", "account_boards", "data", "points")
 FILL_MODES = ("strict", "always")
-DEAL_PRICES = ("close", "vwap")
+DEAL_PRICES = ("close", "vwap", "open")
 
 
 @dataclass(frozen=True)
@@ -40,13 +40,18 @@ class PointsSpec:
     其他：
         max_positions  持仓上限（只数，等权：每只 = 买入时净值 / max_positions）
         freq           新买入与条件卖出的检查频率（daily / weekly / monthly）；止损类路径规则每日检查
+        sell_daily     sell 中需要每日检查的条件名（如业绩预减等事件类卖点），其余条件卖点按 freq 检查
+        max_weight     单票权重上限（占净值比例）；检查日超过的次日减到 1 / max_positions（只影响记账，不改持仓集合）
         fill           strict = 只买满足买点的（不足留现金）；always = 不足时用优先分最高的准入股补满
         rank_exit      优先分在可买股票中的分位跌破该值即卖（如 0.4 = 跌出前 60%）
-        industry_max   单一行业最多持有只数
+        industry_max   单一行业（东财 / 申万二级）最多持有只数
+        sector_max     单一大类（申万一级，config/sw_l1.yaml）最多持有只数
+        sector_groups  把若干一级合并为一个大类计数，如 {大金融: [银行, 非银金融]}
         regime         择时参数（features/regime.py state()）；不满足时不开新仓
         regime_exit    择时不满足时是否清仓
-        live_start     实盘跟踪起始信号日：每日选股从这天起用同一模拟器推演到当日
-        deal_price     成交价：close（T+1 收盘）/ vwap（T+1 全天均价，更接近盘中分批成交）
+        live_start     实盘跟踪第一段的起始信号日（之后的段见 data/pool/<池>/segments.json，selection/segments.py）
+        deal_price     成交价：close（T+1 收盘）/ vwap（T+1 全天均价，更接近盘中分批成交）/ open（T+1 开盘；
+                       开盘即涨停买不进、即跌停卖不出）
     """
     max_positions: int = 10
     freq: str = "daily"
@@ -61,7 +66,11 @@ class PointsSpec:
     take_profit: float | None = None
     max_hold: int | None = None
     rank_exit: float | None = None
+    sell_daily: list = field(default_factory=list)
+    max_weight: float | None = None
     industry_max: int | None = None
+    sector_max: int | None = None
+    sector_groups: dict = field(default_factory=dict)
     regime: dict = field(default_factory=dict)
     regime_exit: bool = False
     live_start: str | None = None

@@ -1,0 +1,104 @@
+[
+ {
+  "start": "2026-10-15",
+  "hash": "e2baa9ac14",
+  "config": {
+   "account": 1000000,
+   "account_boards": [
+    "main"
+   ],
+   "data": {
+    "github_repo": "chenditc/investment_data",
+    "auto_sync": true,
+    "proxy": null
+   },
+   "cost": {
+    "commission": 0.00025,
+    "stamp_tax": 0.0005,
+    "slippage": 0.001,
+    "min_cost": 5
+   },
+   "backtest": {
+    "start": "2018-01-01",
+    "end": null,
+    "in_sample_end": "2022-12-31"
+   },
+   "scorer": {
+    "name": "multifactor",
+    "factors": {
+     "ret20": -1.0,
+     "vol20": -0.5,
+     "ep_ttm": 0.5,
+     "dividend_yield": 0.5
+    }
+   },
+   "filters": {
+    "in_universe": {},
+    "not_st": {},
+    "min_price": {
+     "price": 2.0
+    },
+    "min_market_cap": {
+     "cap": 3000000000.0
+    },
+    "no_consecutive_loss": {
+     "years": 2
+    },
+    "positive_equity": {},
+    "revenue_floor": {
+     "revenue": 300000000.0
+    },
+    "no_risk_notice": {
+     "days": 365
+    },
+    "boards": {
+     "boards": [
+      "main"
+     ]
+    },
+    "min_list_days": {
+     "days": 365
+    },
+    "exclude_suspend": {
+     "days": 20
+    },
+    "exclude_limit": {},
+    "no_release_ahead": {
+     "days": 20,
+     "ratio": 0.05
+    },
+    "min_amount": {
+     "amount": 100000000.0,
+     "window": 20
+    }
+   },
+   "name": "short_reversal",
+   "enabled": true,
+   "status": "production",
+   "universe": "all",
+   "benchmark": "SH000852",
+   "points": {
+    "live_start": "2026-10-15",
+    "max_positions": 10,
+    "buy": {
+     "industry_cheap": {
+      "pct": 0.5
+     }
+    },
+    "buy_any": {
+     "sharp_drop": {},
+     "rsi_golden_low": {
+      "level": 30
+     }
+    },
+    "avoid": {
+     "forecast_negative": {},
+     "holder_reduce": {}
+    },
+    "stop_loss": 0.08,
+    "take_profit": null,
+    "max_hold": 5
+   }
+  }
+ }
+]

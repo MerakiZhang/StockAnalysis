@@ -135,13 +135,33 @@ def small_revenue_loss(ctx: dict, revenue: float = 3e8) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------ 公告 / 解禁
-def risk_events(start: str | None = None) -> pd.DataFrame:
-    """风险公告：(qlib_code, date, title)。"""
-    from ..data.events import load_units
-
-    nt = load_units("notice", start)
+def _risk_hits(nt: pd.DataFrame) -> pd.DataFrame:
     hit = nt["title"].str.contains(RISK_TITLE, na=False) & ~nt["title"].str.contains(RISK_TITLE_EXCLUDE, na=False)
-    return nt.loc[hit, ["qlib_code", "date", "title"]].dropna(subset=["date"])
+    return nt.loc[hit, ["qlib_code", "date", "title"]]
+
+
+def risk_events(start: str | None = None) -> pd.DataFrame:
+    """风险公告：(qlib_code, date, title)。读 data/panel/risk_notice（全部公告中命中关键词的行，关键词变了自动重建）；
+    start 按公告单元（自然日文件）的年份粗筛。"""
+    from ..data.events import unit_files
+    from ..data.panel import build_if_stale
+
+    files = unit_files("notice")
+    if not files:
+        raise FileNotFoundError("无 notice 缓存，请先运行 python -X utf8 -m stockanalysis update-data --only events")
+
+    def build() -> pd.DataFrame:
+        parts = [_risk_hits(pd.read_parquet(f, columns=["qlib_code", "date", "title"])).assign(unit=f.stem)
+                 for f in files]
+        parts = [p for p in parts if len(p)]
+        cols = ["qlib_code", "date", "title", "unit"]
+        return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=cols)
+
+    ev = build_if_stale("risk_notice", files, build,
+                        extra={"title": RISK_TITLE.pattern, "exclude": RISK_TITLE_EXCLUDE.pattern})
+    if start:
+        ev = ev[ev["unit"].str[:4].astype(int) >= pd.Timestamp(start).year]
+    return ev.drop(columns="unit").dropna(subset=["date"]).reset_index(drop=True)
 
 
 def _event_recent(ctx: dict, events: pd.DataFrame, days: int, lag_days: int = 1) -> pd.DataFrame:

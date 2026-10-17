@@ -1,8 +1,8 @@
 """baostock 数据：逐日 ST / 停牌 / 估值 / 换手率（逐股，2015 起），行业分类（当前快照）。
 
-缓存布局（data/baostock/）：
+缓存布局（data/raw/baostock/）：
     daily/<qlib_code>.parquet     date, close_raw, amount, turn, trade_status, pe_ttm, pb_mrq, ps_ttm, pcf_ttm, is_st
-    industry_<yyyymmdd>.parquet   qlib_code, industry, classification（证监会分类，只有当前快照）
+    industry/<yyyymmdd>.parquet   qlib_code, industry, classification（证监会分类，只有当前快照，只留最新一份）
 
 增量：已有缓存从最后日期的次日续抓；中断后重跑即断点续传。
 网络：baostock 原生 send_msg 在服务端断开时 recv 返回空字节会无限空转（表现为"卡住"），
@@ -17,8 +17,10 @@ import zlib
 import pandas as pd
 
 from ..paths import BAOSTOCK_DIR
+from .cache import latest_snapshot, save_snapshot, snapshot_path
 
 DAILY_DIR = BAOSTOCK_DIR / "daily"
+INDUSTRY_DIR = BAOSTOCK_DIR / "industry"
 DAILY_START = "2015-01-01"   # 回测 2018 起 + 250 日预热 + 两年亏损判定
 DAILY_FIELDS = {             # baostock 字段 -> 缓存列名
     "date": "date",
@@ -188,23 +190,39 @@ def update_daily_parallel(codes: list[str], end: str, start: str = DAILY_START, 
         return [c for bad in pool.map(_worker, parts) for c in bad]
 
 
+def is_st_panel() -> pd.DataFrame:
+    """全部已缓存股票的 is_st 宽表（index=baostock 日期并集, columns=代码，float32，无记录为 NaN），存于 data/panel/。"""
+    from .panel import build_if_stale
+
+    files = sorted(DAILY_DIR.glob("*.parquet"))
+
+    def build() -> pd.DataFrame:
+        cols = {p.stem: pd.read_parquet(p, columns=["date", "is_st"]).set_index("date")["is_st"] for p in files}
+        return pd.DataFrame(cols).sort_index().astype("float32")
+
+    return build_if_stale("is_st", files, build)
+
+
 def load_daily(field: str, codes: list[str], dates: pd.DatetimeIndex) -> pd.DataFrame:
-    """逐日字段宽表（index=dates, columns=codes）；无缓存的股票整列为 NaN。"""
-    cols = {}
-    for c in codes:
-        p = daily_path(c)
-        if p.exists():
-            d = pd.read_parquet(p, columns=["date", field])
-            cols[c] = d.set_index("date")[field]
-    wide = pd.DataFrame(cols).reindex(index=pd.DatetimeIndex(dates))
+    """逐日字段宽表（index=dates, columns=codes）；无缓存的股票整列为 NaN。is_st 读 panel 派生表。"""
+    if field == "is_st":
+        wide = is_st_panel()
+    else:
+        cols = {}
+        for c in codes:
+            p = daily_path(c)
+            if p.exists():
+                d = pd.read_parquet(p, columns=["date", field])
+                cols[c] = d.set_index("date")[field]
+        wide = pd.DataFrame(cols)
+    wide = wide.reindex(index=pd.DatetimeIndex(dates))
     return wide.reindex(columns=list(codes)).astype("float32")
 
 
 # ------------------------------------------------------------------ 行业
 def fetch_industry(use_cache: bool = True) -> pd.DataFrame:
     """当前行业分类快照（证监会分类）。历史行业不可得，用于回测时有轻微前视，研究报告中注明。"""
-    today = pd.Timestamp.now().strftime("%Y%m%d")
-    path = BAOSTOCK_DIR / f"industry_{today}.parquet"
+    path = snapshot_path(INDUSTRY_DIR)
     if use_cache and path.exists():
         return pd.read_parquet(path)
     with Session() as s:
@@ -214,15 +232,13 @@ def fetch_industry(use_cache: bool = True) -> pd.DataFrame:
         "industry": raw["industry"].replace("", pd.NA),
         "classification": raw["industryClassification"],
     })
-    path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path, index=False)
-    return df
+    return save_snapshot(df, INDUSTRY_DIR)
 
 
 def load_industry() -> pd.Series:
     """最新一份行业快照：qlib_code -> 行业。无缓存返回空 Series。"""
-    files = sorted(BAOSTOCK_DIR.glob("industry_*.parquet"))
-    if not files:
+    path = latest_snapshot(INDUSTRY_DIR)
+    if path is None:
         return pd.Series(dtype=object)
-    df = pd.read_parquet(files[-1]).dropna(subset=["industry"])
+    df = pd.read_parquet(path).dropna(subset=["industry"])
     return df.set_index("qlib_code")["industry"]
